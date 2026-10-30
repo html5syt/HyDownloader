@@ -75,7 +75,6 @@ class StorageService {
     }
 
     try {
-      // 优先系统标准音乐目录 (Music)
       final musicDir = await getDownloadsDirectory() ??
           (Platform.isWindows || Platform.isMacOS || Platform.isLinux
               ? await getApplicationDocumentsDirectory()
@@ -97,15 +96,26 @@ class StorageService {
     await _prefs.setString(AppConstants.prefKeyDownloadPath, path);
   }
 
-  /// 获取当前配置的下载音质 (默认 lossless)
+  /// 获取当前配置的默认下载音质 (默认 lossless)
   String getAudioRate() {
     return _prefs.getString(AppConstants.prefKeyAudioRate) ??
         AppConstants.defaultAudioRate;
   }
 
-  /// 保存下载音质配置
+  /// 保存默认下载音质配置
   Future<void> saveAudioRate(String rate) async {
     await _prefs.setString(AppConstants.prefKeyAudioRate, rate);
+  }
+
+  /// 获取当前配置的默认试听预览音质 (默认 exhigh)
+  String getPreviewAudioRate() {
+    return _prefs.getString(AppConstants.prefKeyPreviewAudioRate) ??
+        AppConstants.defaultPreviewAudioRate;
+  }
+
+  /// 保存默认试听预览音质配置
+  Future<void> savePreviewAudioRate(String rate) async {
+    await _prefs.setString(AppConstants.prefKeyPreviewAudioRate, rate);
   }
 
   /// 获取下载文件名命名模板 (默认 {$SINGER} - {$SONGNAME})
@@ -149,15 +159,16 @@ class StorageService {
     await _prefs.setBool(AppConstants.prefKeyWriteMetadata, value);
   }
 
-  /// 获取最大并发下载数 (默认 3)
+  /// 获取最大并发下载数 (允许用户自由调整)
   int getMaxConcurrentDownloads() {
     return _prefs.getInt(AppConstants.prefKeyMaxConcurrent) ??
         AppConstants.defaultMaxConcurrentDownloads;
   }
 
-  /// 保存最大并发数
+  /// 保存最大并发数 (无上限限制，允许任意自定义)
   Future<void> saveMaxConcurrentDownloads(int value) async {
-    await _prefs.setInt(AppConstants.prefKeyMaxConcurrent, value);
+    final effective = value < 1 ? 1 : value;
+    await _prefs.setInt(AppConstants.prefKeyMaxConcurrent, effective);
   }
 
   /// 获取记忆的用于歌曲文件同步的本地文件夹路径列表

@@ -4,6 +4,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/home_provider.dart';
 import '../../providers/download_provider.dart';
 import '../widgets/audio_preview_bar.dart';
+import '../widgets/settings_dialog.dart';
 import '../login/login_dialog.dart';
 import '../download/download_screen.dart';
 import '../sync/sync_screen.dart';
@@ -76,6 +77,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
               },
             ),
+          ),
+          const SizedBox(width: 4),
+
+          // 全局设置按钮
+          IconButton(
+            tooltip: '偏好设置',
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: () => SettingsDialog.show(context),
           ),
           const SizedBox(width: 4),
 
@@ -231,5 +240,3 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
-
-

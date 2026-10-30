@@ -16,6 +16,9 @@ class AppConstants {
   /// 默认下载音质档位
   static const String defaultAudioRate = 'lossless';
 
+  /// 默认试听音质档位 (极高 320k，兼顾音质与秒开)
+  static const String defaultPreviewAudioRate = 'exhigh';
+
   /// 默认最大并发下载数
   static const int defaultMaxConcurrentDownloads = 3;
 
@@ -45,6 +48,7 @@ class AppConstants {
   static const String prefKeyAdditionalParameters = 'hydownloader_additional_parameters';
   static const String prefKeyDownloadPath = 'hydownloader_download_path';
   static const String prefKeyAudioRate = 'hydownloader_audio_rate';
+  static const String prefKeyPreviewAudioRate = 'hydownloader_preview_audio_rate';
   static const String prefKeyFileNameTemplate = 'hydownloader_filename_template';
   static const String prefKeyDownloadLyrics = 'hydownloader_download_lyrics';
   static const String prefKeyDownloadTranslation = 'hydownloader_download_translation';
