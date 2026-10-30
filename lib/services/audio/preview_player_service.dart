@@ -54,17 +54,14 @@ class PreviewPlayerService {
   /// 获取加载缓冲状态
   bool get isLoading => _isLoading;
 
-  /// 获取当前播放进度
+  /// 当前播放进度
   Duration get position => _position;
 
   /// 获取音频总时长
   Duration get duration => _duration;
 
-  /// 是否有上一首
-  bool get hasPrevious => _currentIndex > 0;
-
-  /// 是否有下一首
-  bool get hasNext => _currentIndex >= 0 && _currentIndex < _playlist.length - 1;
+  /// 是否有多首歌曲可供切换
+  bool get canSwitch => _playlist.length > 1;
 
   /// 添加播放状态监听器
   void addListener(void Function() listener) {
@@ -101,7 +98,7 @@ class PreviewPlayerService {
     });
 
     _player.onPlayerComplete.listen((_) {
-      if (hasNext) {
+      if (canSwitch) {
         playNext();
       } else {
         _isPlaying = false;
@@ -135,7 +132,7 @@ class PreviewPlayerService {
     }
 
     // 若点击同一首正在播放的歌曲，则切换暂停/播放
-    if (_currentSong?.id == song.id) {
+    if (_currentSong?.id == song.id && !_isLoading) {
       if (_isPlaying) {
         await pause();
       } else {
@@ -175,20 +172,28 @@ class PreviewPlayerService {
     }
   }
 
-  /// 播放上一首
+  /// 播放上一首 (支持循环轮播)
   Future<void> playPrevious() async {
-    if (hasPrevious) {
+    if (_playlist.isEmpty) return;
+    if (_currentIndex > 0) {
       _currentIndex--;
-      await playSong(_playlist[_currentIndex]);
+    } else {
+      _currentIndex = _playlist.length - 1;
     }
+    _currentSong = null; // 确保触发重新加载
+    await playSong(_playlist[_currentIndex], contextPlaylist: _playlist);
   }
 
-  /// 播放下一首
+  /// 播放下一首 (支持循环轮播)
   Future<void> playNext() async {
-    if (hasNext) {
+    if (_playlist.isEmpty) return;
+    if (_currentIndex < _playlist.length - 1) {
       _currentIndex++;
-      await playSong(_playlist[_currentIndex]);
+    } else {
+      _currentIndex = 0;
     }
+    _currentSong = null; // 确保触发重新加载
+    await playSong(_playlist[_currentIndex], contextPlaylist: _playlist);
   }
 
   /// 切换播放与暂停

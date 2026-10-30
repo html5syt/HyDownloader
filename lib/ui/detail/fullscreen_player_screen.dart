@@ -1,10 +1,12 @@
 ﻿import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../config/app_theme.dart';
 import '../../models/song.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/download_provider.dart';
 import '../../services/netease/lyric_service.dart';
+import '../widgets/app_network_image.dart';
 
 /// 类似 HyPlayer 沉浸式全屏试听与歌词预览视图
 /// 包含全景毛玻璃背景、左侧发光黑胶/圆形封面、右侧实时滚动歌词与底部沉浸式播放控制条
@@ -86,7 +88,15 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
         final msPart = match.group(3) ?? '00';
         final ms = int.tryParse(msPart.padRight(3, '0').substring(0, 3)) ?? 0;
         final timeMs = m * 60 * 1000 + s * 1000 + ms;
-        final lineText = (match.group(4) ?? '').trim();
+        var lineText = (match.group(4) ?? '').trim();
+        // 规整全角逗号等标点符号周围的空格，防止字体渲染时产生异常空隙
+        lineText = lineText
+            .replaceAll(' ，', '，')
+            .replaceAll(' ,', '，')
+            .replaceAll(' , ', '，')
+            .replaceAll('  ', ' ')
+            .trim();
+
         if (lineText.isNotEmpty) {
           lines.add(LyricLine(
             timeMs: timeMs,
@@ -159,10 +169,9 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
         children: [
           // 1. 全屏毛玻璃虚化背景
           if (song.albumCoverUrl.isNotEmpty)
-            Image.network(
-              song.albumCoverUrl,
+            AppNetworkImage(
+              url: song.albumCoverUrl,
               fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => Container(color: const Color(0xFF0D1B2A)),
             )
           else
             Container(color: const Color(0xFF0D1B2A)),
@@ -281,10 +290,9 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
               ),
               child: ClipOval(
                 child: song.albumCoverUrl.isNotEmpty
-                    ? Image.network(
-                        song.albumCoverUrl,
+                    ? AppNetworkImage(
+                        url: song.albumCoverUrl,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => Container(color: Colors.blueGrey),
                       )
                     : Container(color: Colors.blueGrey),
               ),
@@ -299,6 +307,7 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
                 fontWeight: FontWeight.bold,
                 fontSize: compact ? 18 : 22,
                 letterSpacing: 0.5,
+                fontFamilyFallback: AppTheme.fontFallbacks,
               ),
               textAlign: TextAlign.center,
               maxLines: 2,
@@ -312,6 +321,7 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
               style: const TextStyle(
                 color: Colors.white70,
                 fontSize: 14,
+                fontFamilyFallback: AppTheme.fontFallbacks,
               ),
               textAlign: TextAlign.center,
               maxLines: 1,
@@ -323,7 +333,7 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
     );
   }
 
-  /// 构建右侧歌词滚动区域
+  /// 构建右侧歌词滚动区域 (显式应用 CJK 字体回退，确保逗号与字符正常间距)
   Widget _buildLyricsView(PlayerProvider player) {
     if (_isLoadingLyrics) {
       return const Center(child: CircularProgressIndicator(color: Colors.white70));
@@ -333,7 +343,12 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
       return const Center(
         child: Text(
           '纯音乐，请欣赏',
-          style: TextStyle(color: Colors.white70, fontSize: 18, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: Colors.white70,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            fontFamilyFallback: AppTheme.fontFallbacks,
+          ),
         ),
       );
     }
@@ -360,6 +375,7 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
                 fontSize: isActive ? 20 : 15,
                 fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
                 height: 1.4,
+                fontFamilyFallback: AppTheme.fontFallbacks,
               ),
               textAlign: TextAlign.center,
               child: Text(line.text),
@@ -405,11 +421,19 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
               children: [
                 Text(
                   _formatDuration(player.position),
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                    fontFamilyFallback: AppTheme.fontFallbacks,
+                  ),
                 ),
                 Text(
                   _formatDuration(player.duration),
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                    fontFamilyFallback: AppTheme.fontFallbacks,
+                  ),
                 ),
               ],
             ),
@@ -423,7 +447,7 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
               IconButton(
                 tooltip: '上一首',
                 icon: const Icon(Icons.skip_previous_rounded, color: Colors.white, size: 36),
-                onPressed: player.hasPrevious ? () => player.playPrevious() : null,
+                onPressed: player.canSwitch ? () => player.playPrevious() : null,
               ),
               const SizedBox(width: 24),
               IconButton(
@@ -439,7 +463,7 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
               IconButton(
                 tooltip: '下一首',
                 icon: const Icon(Icons.skip_next_rounded, color: Colors.white, size: 36),
-                onPressed: player.hasNext ? () => player.playNext() : null,
+                onPressed: player.canSwitch ? () => player.playNext() : null,
               ),
             ],
           ),

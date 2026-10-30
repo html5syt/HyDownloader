@@ -21,8 +21,13 @@ class PlayerProvider extends ChangeNotifier {
   bool get isLoading => _service.isLoading;
   Duration get position => _service.position;
   Duration get duration => _service.duration;
-  bool get hasPrevious => _service.hasPrevious;
-  bool get hasNext => _service.hasNext;
+  bool get canSwitch => _service.canSwitch;
+
+  /// 设置当前播放列表
+  void setPlaylist(List<Song> songs) {
+    _service.setPlaylist(songs);
+    notifyListeners();
+  }
 
   /// 播放或暂停歌曲试听
   Future<void> playSong(Song song, {List<Song>? contextPlaylist}) async {

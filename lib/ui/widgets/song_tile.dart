@@ -3,15 +3,19 @@ import 'package:provider/provider.dart';
 import '../../models/song.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/download_provider.dart';
+import 'app_network_image.dart';
 
 /// 通用歌曲列表项组件
-/// 支持单曲播放试听与一键下载
+/// 支持单曲播放试听与一键下载，并支持接收歌单上下文以实现连续切歌
 class SongTile extends StatelessWidget {
   /// 歌曲数据模型
   final Song song;
 
   /// 显示的歌曲序号（可选）
   final int? index;
+
+  /// 当前歌单上下文列表（用于支持上一首/下一首连续播放）
+  final List<Song>? playlistContext;
 
   /// 是否展示多选复选框（用于批量下载场景）
   final bool showCheckbox;
@@ -26,6 +30,7 @@ class SongTile extends StatelessWidget {
     super.key,
     required this.song,
     this.index,
+    this.playlistContext,
     this.showCheckbox = false,
     this.isSelected = false,
     this.onSelectChanged,
@@ -50,7 +55,7 @@ class SongTile extends StatelessWidget {
         if (showCheckbox) {
           onSelectChanged?.call(!isSelected);
         } else {
-          playerProvider.playSong(song);
+          playerProvider.playSong(song, contextPlaylist: playlistContext);
         }
       },
       borderRadius: BorderRadius.circular(12),
@@ -76,22 +81,13 @@ class SongTile extends StatelessWidget {
                 ),
               ),
 
-            // 封面（若有）
+            // 封面（使用 AppNetworkImage 带有 anti-hotlink 请求头）
             if (song.albumCoverUrl.isNotEmpty) ...[
-              ClipRRect(
+              AppNetworkImage(
+                url: song.albumCoverUrl,
+                width: 44,
+                height: 44,
                 borderRadius: BorderRadius.circular(8),
-                child: Image.network(
-                  song.albumCoverUrl,
-                  width: 44,
-                  height: 44,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => Container(
-                    width: 44,
-                    height: 44,
-                    color: colorScheme.surfaceContainerHighest,
-                    child: const Icon(Icons.music_note, size: 20),
-                  ),
-                ),
               ),
               const SizedBox(width: 12),
             ],
@@ -160,7 +156,7 @@ class SongTile extends StatelessWidget {
                       size: 26,
                     ),
               onPressed: () {
-                playerProvider.playSong(song);
+                playerProvider.playSong(song, contextPlaylist: playlistContext);
               },
             ),
 
@@ -190,5 +186,3 @@ class SongTile extends StatelessWidget {
     );
   }
 }
-
-

@@ -165,9 +165,10 @@ class _SettingsDialogState extends State<SettingsDialog> {
                     ),
                     const SizedBox(height: 16),
 
-                    // 3. 并发下载线程数（允许任意调整）
+                    // 3. 并发下载线程数（完美对齐 +- 号）
                     _buildSectionHeader('并发下载线程数'),
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         Expanded(
                           child: TextFormField(
@@ -176,7 +177,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
                             decoration: const InputDecoration(
                               labelText: '同时下载的最大任务数',
                               hintText: '例如: 3, 5, 8, 16...',
-                              helperText: '允许根据您的带宽与设备性能任意设定',
+                              contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                             ),
                           ),
                         ),
@@ -191,6 +192,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
                             }
                           },
                         ),
+                        const SizedBox(width: 4),
                         IconButton.filledTonal(
                           tooltip: '增加线程',
                           icon: const Icon(Icons.add),
@@ -200,6 +202,11 @@ class _SettingsDialogState extends State<SettingsDialog> {
                           },
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '允许根据您的带宽与设备性能任意设定',
+                      style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
                     ),
                     const SizedBox(height: 16),
 
@@ -282,4 +289,3 @@ class _SettingsDialogState extends State<SettingsDialog> {
     );
   }
 }
-

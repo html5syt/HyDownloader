@@ -4,6 +4,7 @@ import '../../models/search_result.dart';
 import '../../providers/home_provider.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/empty_state_view.dart';
+import '../widgets/app_network_image.dart';
 import '../detail/playlist_detail_screen.dart';
 import '../detail/podcast_detail_screen.dart';
 
@@ -124,6 +125,7 @@ class _SearchTabState extends State<SearchTab> {
             return SongTile(
               song: result.songs[index],
               index: index + 1,
+              playlistContext: result.songs,
             );
           },
         );
@@ -139,11 +141,11 @@ class _SearchTabState extends State<SearchTab> {
           itemBuilder: (context, index) {
             final pl = result.playlists[index];
             return ListTile(
-              leading: ClipRRect(
+              leading: AppNetworkImage(
+                url: pl.coverImgUrl,
+                width: 48,
+                height: 48,
                 borderRadius: BorderRadius.circular(8),
-                child: pl.coverImgUrl.isNotEmpty
-                    ? Image.network(pl.coverImgUrl, width: 48, height: 48, fit: BoxFit.cover)
-                    : Container(width: 48, height: 48, color: Colors.grey),
               ),
               title: Text(pl.name, maxLines: 1, overflow: TextOverflow.ellipsis),
               subtitle: Text('${pl.creatorName} · ${pl.trackCount} 首歌曲'),
@@ -169,11 +171,11 @@ class _SearchTabState extends State<SearchTab> {
           itemBuilder: (context, index) {
             final pod = result.podcasts[index];
             return ListTile(
-              leading: ClipRRect(
+              leading: AppNetworkImage(
+                url: pod.coverUrl,
+                width: 48,
+                height: 48,
                 borderRadius: BorderRadius.circular(8),
-                child: pod.coverUrl.isNotEmpty
-                    ? Image.network(pod.coverUrl, width: 48, height: 48, fit: BoxFit.cover)
-                    : Container(width: 48, height: 48, color: Colors.grey),
               ),
               title: Text(pod.name, maxLines: 1, overflow: TextOverflow.ellipsis),
               subtitle: Text('主播: ${pod.djName} · ${pod.programCount} 期'),
@@ -190,4 +192,3 @@ class _SearchTabState extends State<SearchTab> {
     }
   }
 }
-

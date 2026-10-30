@@ -6,6 +6,7 @@ import '../../services/netease/music_service.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/audio_preview_bar.dart';
+import '../widgets/app_network_image.dart';
 
 /// 播客/电台详情页面
 /// 展示播客包含的声音节目列表，提供试听与单期/批量下载
@@ -105,27 +106,17 @@ class _PodcastDetailScreenState extends State<PodcastDetailScreen> {
                                 padding: const EdgeInsets.all(16.0),
                                 child: Row(
                                   children: [
-                                    ClipRRect(
+                                    AppNetworkImage(
+                                      url: widget.podcast.coverUrl,
+                                      width: 80,
+                                      height: 80,
                                       borderRadius: BorderRadius.circular(12),
-                                      child: widget.podcast.coverUrl.isNotEmpty
-                                          ? Image.network(
-                                              widget.podcast.coverUrl,
-                                              width: 80,
-                                              height: 80,
-                                              fit: BoxFit.cover,
-                                              errorBuilder: (context, error, stackTrace) => Container(
-                                                width: 80,
-                                                height: 80,
-                                                color: colorScheme.surfaceContainerHighest,
-                                                child: const Icon(Icons.podcasts, size: 36),
-                                              ),
-                                            )
-                                          : Container(
-                                              width: 80,
-                                              height: 80,
-                                              color: colorScheme.surfaceContainerHighest,
-                                              child: const Icon(Icons.podcasts, size: 36),
-                                            ),
+                                      fallback: Container(
+                                        width: 80,
+                                        height: 80,
+                                        color: colorScheme.surfaceContainerHighest,
+                                        child: const Icon(Icons.podcasts, size: 36),
+                                      ),
                                     ),
                                     const SizedBox(width: 16),
                                     Expanded(
@@ -162,6 +153,7 @@ class _PodcastDetailScreenState extends State<PodcastDetailScreen> {
                             return SongTile(
                               song: program.mainSong,
                               index: index,
+                              playlistContext: _programs.map((p) => p.mainSong).toList(),
                             );
                           },
                         ),

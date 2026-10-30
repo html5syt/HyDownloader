@@ -4,6 +4,7 @@ import '../../models/playlist.dart';
 import '../../providers/home_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../widgets/empty_state_view.dart';
+import '../widgets/app_network_image.dart';
 import '../detail/playlist_detail_screen.dart';
 import '../login/login_dialog.dart';
 
@@ -178,13 +179,11 @@ class PlaylistTab extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  playlist.coverImgUrl.isNotEmpty
-                      ? Image.network(
-                          playlist.coverImgUrl,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) => _buildFallback(colorScheme),
-                        )
-                      : _buildFallback(colorScheme),
+                  AppNetworkImage(
+                    url: playlist.coverImgUrl,
+                    fit: BoxFit.cover,
+                    fallback: _buildFallback(colorScheme),
+                  ),
                   Positioned(
                     right: 6,
                     bottom: 6,
@@ -234,4 +233,3 @@ class PlaylistTab extends StatelessWidget {
     );
   }
 }
-

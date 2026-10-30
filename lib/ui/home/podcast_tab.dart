@@ -4,6 +4,7 @@ import '../../models/podcast.dart';
 import '../../providers/home_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../widgets/empty_state_view.dart';
+import '../widgets/app_network_image.dart';
 import '../detail/podcast_detail_screen.dart';
 import '../login/login_dialog.dart';
 
@@ -74,17 +75,12 @@ class PodcastTab extends StatelessWidget {
         ),
         child: Row(
           children: [
-            ClipRRect(
+            AppNetworkImage(
+              url: podcast.coverUrl,
+              width: 60,
+              height: 60,
               borderRadius: BorderRadius.circular(8),
-              child: podcast.coverUrl.isNotEmpty
-                  ? Image.network(
-                      podcast.coverUrl,
-                      width: 60,
-                      height: 60,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => _buildFallback(colorScheme),
-                    )
-                  : _buildFallback(colorScheme),
+              fallback: _buildFallback(colorScheme),
             ),
             const SizedBox(width: 14),
             Expanded(

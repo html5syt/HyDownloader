@@ -2,6 +2,7 @@
 import 'package:provider/provider.dart';
 import '../../providers/player_provider.dart';
 import '../detail/fullscreen_player_screen.dart';
+import 'app_network_image.dart';
 
 /// 全局底部浮动试听控制栏
 /// 支持拖拽进度条调进度、显示时长、点击直接展开类似 HyPlayer 的全屏歌词预览
@@ -85,18 +86,13 @@ class AudioPreviewBar extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
               child: Row(
                 children: [
-                  // 封面
-                  ClipRRect(
+                  // 封面 (使用防盗链 AppNetworkImage)
+                  AppNetworkImage(
+                    url: song.albumCoverUrl,
+                    width: 44,
+                    height: 44,
                     borderRadius: BorderRadius.circular(8),
-                    child: song.albumCoverUrl.isNotEmpty
-                        ? Image.network(
-                            song.albumCoverUrl,
-                            width: 44,
-                            height: 44,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) => _buildFallbackCover(colorScheme),
-                          )
-                        : _buildFallbackCover(colorScheme),
+                    fallback: _buildFallbackCover(colorScheme),
                   ),
                   const SizedBox(width: 12),
 
@@ -202,4 +198,3 @@ class AudioPreviewBar extends StatelessWidget {
     return '$m:$s';
   }
 }
-

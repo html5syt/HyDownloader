@@ -9,6 +9,7 @@ import '../../services/netease/music_service.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/audio_preview_bar.dart';
+import '../widgets/app_network_image.dart';
 import '../sync/sync_screen.dart';
 
 /// 歌单详情页面
@@ -24,10 +25,10 @@ class PlaylistDetailScreen extends StatefulWidget {
 
 class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   final NeteaseMusicService _musicService = NeteaseMusicService.instance;
+  late Playlist _currentPlaylist;
   List<Song> _songs = [];
   bool _isLoading = true;
   String? _errorMessage;
-  late String _coverUrl;
 
   // 批量选择模式
   bool _isSelectionMode = false;
@@ -36,16 +37,8 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _coverUrl = _formatSecureUrl(widget.playlist.coverImgUrl);
+    _currentPlaylist = widget.playlist;
     _loadSongs();
-  }
-
-  /// 确保图片链接使用 https 协议，避免明文传输被系统拦截导致无法显示封面
-  String _formatSecureUrl(String url) {
-    if (url.startsWith('http://')) {
-      return url.replaceFirst('http://', 'https://');
-    }
-    return url;
   }
 
   Future<void> _loadSongs() async {
@@ -55,10 +48,14 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     });
 
     try {
-      final songs = await _musicService.getPlaylistSongs(widget.playlist.id);
+      final result = await _musicService.getPlaylistDetailWithSongs(
+        widget.playlist.id,
+        initialPlaylist: widget.playlist,
+      );
       if (!mounted) return;
       setState(() {
-        _songs = songs;
+        _currentPlaylist = result.playlist;
+        _songs = result.songs;
         _isLoading = false;
       });
     } catch (e) {
@@ -125,19 +122,22 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final coverUrl = _currentPlaylist.coverImgUrl.isNotEmpty
+        ? _currentPlaylist.coverImgUrl
+        : widget.playlist.coverImgUrl;
 
     return Scaffold(
       body: Stack(
         children: [
           CustomScrollView(
             slivers: [
-              // 顶部歌单信息 AppBar (去除了导致多余重复文字重叠的 FlexibleSpaceBar title)
+              // 顶部歌单信息 AppBar (无多余重复标题重叠)
               SliverAppBar(
                 expandedHeight: 200,
                 pinned: true,
                 elevation: 0,
                 title: Text(
-                  widget.playlist.name,
+                  _currentPlaylist.name,
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 flexibleSpace: FlexibleSpaceBar(
@@ -145,12 +145,11 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                   background: Stack(
                     fit: StackFit.expand,
                     children: [
-                      // 背景封面毛玻璃微弱底色
-                      if (_coverUrl.isNotEmpty)
-                        Image.network(
-                          _coverUrl,
+                      // 背景虚化底色
+                      if (coverUrl.isNotEmpty)
+                        AppNetworkImage(
+                          url: coverUrl,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) => Container(color: colorScheme.surfaceContainerHighest),
                         ),
                       Container(
                         decoration: BoxDecoration(
@@ -164,7 +163,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                           ),
                         ),
                       ),
-                      // 前景歌单信息（含高清封面与标题、作者信息）
+                      // 前景歌单信息区
                       Positioned(
                         left: 20,
                         bottom: 24,
@@ -172,17 +171,20 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            ClipRRect(
+                            AppNetworkImage(
+                              url: coverUrl,
+                              width: 96,
+                              height: 96,
                               borderRadius: BorderRadius.circular(12),
-                              child: _coverUrl.isNotEmpty
-                                  ? Image.network(
-                                      _coverUrl,
-                                      width: 96,
-                                      height: 96,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (context, error, stackTrace) => _buildFallbackCover(colorScheme),
-                                    )
-                                  : _buildFallbackCover(colorScheme),
+                              fallback: Container(
+                                width: 96,
+                                height: 96,
+                                decoration: BoxDecoration(
+                                  color: colorScheme.surfaceContainerHighest,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(Icons.queue_music, size: 40),
+                              ),
                             ),
                             const SizedBox(width: 16),
                             Expanded(
@@ -191,7 +193,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Text(
-                                    widget.playlist.name,
+                                    _currentPlaylist.name,
                                     style: const TextStyle(
                                       color: Colors.white,
                                       fontSize: 18,
@@ -202,7 +204,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    '${widget.playlist.creatorName.isEmpty ? "网易云音乐用户" : widget.playlist.creatorName} · 共 ${_songs.isEmpty ? widget.playlist.trackCount : _songs.length} 首歌曲',
+                                    '${_currentPlaylist.creatorName.isEmpty ? "网易云用户" : _currentPlaylist.creatorName} · 共 ${_songs.isEmpty ? _currentPlaylist.trackCount : _songs.length} 首歌曲',
                                     style: const TextStyle(color: Colors.white70, fontSize: 13),
                                   ),
                                 ],
@@ -215,13 +217,12 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                   ),
                 ),
                 actions: [
-                  // 同步此歌单快捷按钮
                   IconButton(
                     tooltip: '同步此歌单到本地文件夹',
                     icon: const Icon(Icons.sync_alt_rounded),
                     onPressed: () {
                       final sync = context.read<SyncProvider>();
-                      sync.setPlaylist(widget.playlist);
+                      sync.setPlaylist(_currentPlaylist);
                       Navigator.push(
                         context,
                         MaterialPageRoute(builder: (_) => const SyncScreen()),
@@ -301,7 +302,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                 ),
               ),
 
-              // 歌曲列表区域（底部留足内边距避免被预览控制条遮挡）
+              // 歌曲列表区域
               if (_isLoading)
                 const SliverFillRemaining(
                   child: Center(child: CircularProgressIndicator()),
@@ -333,6 +334,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                         return SongTile(
                           song: song,
                           index: index + 1,
+                          playlistContext: _songs, // 传入当前歌单上下文，支持顺畅上一首/下一首切歌
                           showCheckbox: _isSelectionMode,
                           isSelected: _selectedSongIds.contains(song.id),
                           onSelectChanged: (val) {
@@ -353,7 +355,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
             ],
           ),
 
-          // 底部试听浮动控制栏（满足要求 8）
+          // 底部试听浮动控制栏
           const Positioned(
             left: 0,
             right: 0,
@@ -362,15 +364,6 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildFallbackCover(ColorScheme colorScheme) {
-    return Container(
-      width: 96,
-      height: 96,
-      color: colorScheme.surfaceContainerHighest,
-      child: const Icon(Icons.queue_music, size: 40),
     );
   }
 }
