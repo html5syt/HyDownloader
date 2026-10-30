@@ -79,6 +79,12 @@ class _SyncScreenState extends State<SyncScreen> {
                         height: 44,
                         borderRadius: BorderRadius.circular(6),
                       ),
+                      title: Text(
+                        pl.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
                       subtitle: Text('${pl.trackCount} 首歌曲'),
                       onTap: () => Navigator.pop(ctx, pl),
                     );

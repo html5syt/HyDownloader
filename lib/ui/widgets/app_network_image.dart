@@ -1,8 +1,23 @@
-﻿import 'package:flutter/material.dart';
+﻿import 'dart:typed_data';
+import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
+
+/// 全局内存图片缓存，避免重复拉取并实现即时呈现
+final Map<String, Uint8List> _globalImageMemoryCache = {};
+
+/// 单例 Dio 客户端，预设官方防盗链 Header 与连接超时限制
+final Dio _imageDio = Dio(
+  BaseOptions(
+    connectTimeout: const Duration(seconds: 6),
+    receiveTimeout: const Duration(seconds: 10),
+    headers: AppNetworkImage.neteaseHeaders,
+    responseType: ResponseType.bytes,
+  ),
+);
 
 /// 专为网易云音乐 CDN 设计的跨平台高可靠网络图片加载组件
-/// 自动注入官方浏览器 User-Agent 与 Referer 请求头，避免被网易 CDN 拦截返回 403
-/// 自动升级 http 为 https，提供优雅占位与异常回退
+/// 采用 Dio 底层通信以规避 Windows/Flutter 原生 HttpClient 偶发 IPv6 握手挂起与 403 拦截，
+/// 并提供内存快速缓存、智能 HTTPS 升序与优雅占位
 class AppNetworkImage extends StatelessWidget {
   /// 图片网络直链
   final String url;
@@ -49,6 +64,36 @@ class AppNetworkImage extends StatelessWidget {
     return u;
   }
 
+  Future<Uint8List?> _loadImageBytes(String cleanUrl) async {
+    if (cleanUrl.isEmpty) return null;
+    if (_globalImageMemoryCache.containsKey(cleanUrl)) {
+      return _globalImageMemoryCache[cleanUrl];
+    }
+
+    try {
+      final res = await _imageDio.get<List<int>>(cleanUrl);
+      if (res.data != null && res.data!.isNotEmpty) {
+        final bytes = Uint8List.fromList(res.data!);
+        _globalImageMemoryCache[cleanUrl] = bytes;
+        return bytes;
+      }
+    } catch (_) {
+      // 若 HTTPS 失败则降级尝试 HTTP
+      if (cleanUrl.startsWith('https://')) {
+        try {
+          final httpUrl = cleanUrl.replaceFirst('https://', 'http://');
+          final res2 = await _imageDio.get<List<int>>(httpUrl);
+          if (res2.data != null && res2.data!.isNotEmpty) {
+            final bytes2 = Uint8List.fromList(res2.data!);
+            _globalImageMemoryCache[cleanUrl] = bytes2;
+            return bytes2;
+          }
+        } catch (_) {}
+      }
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final cleanUrl = _secureUrl;
@@ -58,18 +103,40 @@ class AppNetworkImage extends StatelessWidget {
       return _wrapRadius(defaultFallback);
     }
 
-    final imageWidget = Image.network(
-      cleanUrl,
-      width: width,
-      height: height,
-      fit: fit,
-      headers: neteaseHeaders,
-      errorBuilder: (context, error, stackTrace) {
-        return defaultFallback;
-      },
-    );
+    // 优先命中内存缓存
+    if (_globalImageMemoryCache.containsKey(cleanUrl)) {
+      return _wrapRadius(
+        Image.memory(
+          _globalImageMemoryCache[cleanUrl]!,
+          width: width,
+          height: height,
+          fit: fit,
+          errorBuilder: (_, _, _) => defaultFallback,
+        ),
+      );
+    }
 
-    return _wrapRadius(imageWidget);
+    return _wrapRadius(
+      FutureBuilder<Uint8List?>(
+        future: _loadImageBytes(cleanUrl),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.done &&
+              snapshot.hasData &&
+              snapshot.data != null) {
+            return Image.memory(
+              snapshot.data!,
+              width: width,
+              height: height,
+              fit: fit,
+              errorBuilder: (_, _, _) => defaultFallback,
+            );
+          }
+
+          // 加载中或错误时展示占位
+          return defaultFallback;
+        },
+      ),
+    );
   }
 
   Widget _wrapRadius(Widget child) {
@@ -91,7 +158,9 @@ class AppNetworkImage extends StatelessWidget {
       child: Icon(
         Icons.music_note,
         color: colorScheme.primary.withAlpha(120),
-        size: (width != null && height != null) ? (width! * 0.45).clamp(16.0, 48.0) : 24.0,
+        size: (width != null && height != null)
+            ? (width! * 0.45).clamp(16.0, 48.0)
+            : 24.0,
       ),
     );
   }
