@@ -5,6 +5,7 @@ import '../../providers/home_provider.dart';
 import '../../providers/download_provider.dart';
 import '../widgets/audio_preview_bar.dart';
 import '../widgets/settings_dialog.dart';
+import '../widgets/app_network_image.dart';
 import '../login/login_dialog.dart';
 import '../download/download_screen.dart';
 import '../sync/sync_screen.dart';
@@ -100,7 +101,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       radius: 16,
                       backgroundColor: colorScheme.primary.withAlpha(40),
                       backgroundImage: auth.currentUser!.avatarUrl.isNotEmpty
-                          ? NetworkImage(auth.currentUser!.avatarUrl)
+                          ? NetworkImage(auth.currentUser!.avatarUrl, headers: AppNetworkImage.neteaseHeaders)
                           : null,
                       child: auth.currentUser!.avatarUrl.isEmpty
                           ? Icon(Icons.person, size: 18, color: colorScheme.primary)
@@ -240,3 +241,4 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
+

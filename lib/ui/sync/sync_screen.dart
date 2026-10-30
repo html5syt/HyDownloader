@@ -5,6 +5,7 @@ import '../../models/sync_item.dart';
 import '../../providers/sync_provider.dart';
 import '../../providers/home_provider.dart';
 import '../widgets/empty_state_view.dart';
+import '../widgets/app_network_image.dart';
 
 /// 歌单文件双向同步页面
 /// 支持在线歌单与多个本地文件夹比对，比对完成后可灵活折叠展开配置面板，
@@ -72,13 +73,12 @@ class _SyncScreenState extends State<SyncScreen> {
                   itemBuilder: (_, i) {
                     final pl = home.playlists[i];
                     return ListTile(
-                      leading: ClipRRect(
+                      leading: AppNetworkImage(
+                        url: pl.coverImgUrl,
+                        width: 44,
+                        height: 44,
                         borderRadius: BorderRadius.circular(6),
-                        child: pl.coverImgUrl.isNotEmpty
-                            ? Image.network(pl.coverImgUrl, width: 40, height: 40, fit: BoxFit.cover)
-                            : Container(width: 40, height: 40, color: Colors.grey),
                       ),
-                      title: Text(pl.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                       subtitle: Text('${pl.trackCount} 首歌曲'),
                       onTap: () => Navigator.pop(ctx, pl),
                     );
@@ -503,3 +503,4 @@ class _SyncScreenState extends State<SyncScreen> {
     );
   }
 }
+
