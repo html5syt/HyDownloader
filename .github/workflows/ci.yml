@@ -1,0 +1,157 @@
+﻿name: CI
+
+on:
+  push:
+    branches:
+      - "master"
+      - "main"
+  pull_request:
+    branches:
+      - "master"
+      - "main"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: "3.44.1"
+  APP_NAME: HyDownloader
+
+jobs:
+  test_and_analyze:
+    name: Code Quality & Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Static code analysis
+        run: flutter analyze
+
+      - name: Run automated test suite
+        run: flutter test
+
+  android_build:
+    name: Build Android
+    needs: test_and_analyze
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Build Android APK
+        run: |
+          flutter pub get
+          flutter build apk --debug
+          mkdir -p artifacts
+          cp build/app/outputs/flutter-apk/app-debug.apk artifacts/${APP_NAME}-android-debug.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-debug
+          path: artifacts/*
+
+  windows_build:
+    name: Build Windows
+    needs: test_and_analyze
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Build Windows Desktop
+        shell: powershell
+        run: |
+          flutter config --enable-windows-desktop
+          flutter pub get
+          flutter build windows --debug
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          Compress-Archive -Path build\windows\x64\runner\Debug\* -DestinationPath artifacts\${env:APP_NAME}-windows-debug.zip -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-debug
+          path: artifacts/*
+
+  linux_build:
+    name: Build Linux
+    needs: test_and_analyze
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libasound2-dev
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Build Linux Desktop
+        run: |
+          flutter config --enable-linux-desktop
+          flutter pub get
+          flutter build linux --debug
+          mkdir -p artifacts
+          tar -czf artifacts/${APP_NAME}-linux-debug.tar.gz -C build/linux/x64/debug/bundle .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-debug
+          path: artifacts/*
+
+  apple_build:
+    name: Build macOS & iOS
+    needs: test_and_analyze
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Build macOS and unsigned iOS
+        run: |
+          flutter config --enable-macos-desktop
+          flutter pub get
+          flutter build macos --debug
+          flutter build ios --debug --no-codesign
+          mkdir -p artifacts
+          ditto -c -k --sequesterRsrc --keepParent build/macos/Build/Products/Debug/HyDownloader.app artifacts/${APP_NAME}-macos-debug.zip || true
+          ditto -c -k --sequesterRsrc --keepParent build/ios/iphoneos/Runner.app artifacts/${APP_NAME}-ios-unsigned-debug.zip || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apple-debug
+          path: artifacts/*
