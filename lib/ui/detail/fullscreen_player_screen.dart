@@ -21,6 +21,9 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
   final NeteaseLyricService _lyricService = NeteaseLyricService.instance;
   final ScrollController _lyricScrollController = ScrollController();
 
+  /// 每一行歌词的标准行高，用于精确计算垂直居中偏移
+  static const double _lyricItemHeight = 56.0;
+
   String? _loadedSongId;
   List<LyricLine> _lyrics = [];
   bool _isLoadingLyrics = true;
@@ -89,7 +92,7 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
         final ms = int.tryParse(msPart.padRight(3, '0').substring(0, 3)) ?? 0;
         final timeMs = m * 60 * 1000 + s * 1000 + ms;
         var lineText = (match.group(4) ?? '').trim();
-        // 规整全角逗号等标点符号周围的空格，防止字体渲染时产生异常空隙
+        // 规整全角标点符号周围的空格，防止字体渲染时产生异常空隙
         lineText = lineText
             .replaceAll(' ，', '，')
             .replaceAll(' ,', '，')
@@ -125,13 +128,13 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
 
     if (activeIdx != _currentLyricIndex && activeIdx >= 0) {
       _currentLyricIndex = activeIdx;
-      // 自动平滑滚动使得当前歌词居中
+      // 自动平滑滚动使得当前歌词精确在垂直中线对齐
       if (_lyricScrollController.hasClients) {
-        final targetOffset = activeIdx * 48.0 - 150.0;
+        final targetOffset = activeIdx * _lyricItemHeight;
         _lyricScrollController.animateTo(
           targetOffset.clamp(0.0, _lyricScrollController.position.maxScrollExtent),
           duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
+          curve: Curves.easeOutCubic,
         );
       }
     }
@@ -224,7 +227,7 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
                   ),
                 ),
 
-                // 中间展示区：左侧圆形封面 + 右侧歌词
+                // 中间展示区：左侧圆形封面 + 右侧垂直居中对齐歌词
                 Expanded(
                   child: isWide
                       ? Row(
@@ -234,7 +237,7 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
                               flex: 5,
                               child: _buildCoverAndTitle(song),
                             ),
-                            // 右侧：实时歌词
+                            // 右侧：实时歌词（中间垂直对齐）
                             Expanded(
                               flex: 5,
                               child: _buildLyricsView(player),
@@ -333,7 +336,7 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
     );
   }
 
-  /// 构建右侧歌词滚动区域 (显式应用 CJK 字体回退，确保逗号与字符正常间距)
+  /// 构建右侧歌词滚动区域 (通过动态内边距实现当前歌词行在视口正中垂直对齐)
   Widget _buildLyricsView(PlayerProvider player) {
     if (_isLoadingLyrics) {
       return const Center(child: CircularProgressIndicator(color: Colors.white70));
@@ -353,34 +356,50 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
       );
     }
 
-    return ListView.builder(
-      controller: _lyricScrollController,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 100),
-      itemCount: _lyrics.length,
-      itemBuilder: (context, index) {
-        final line = _lyrics[index];
-        final isActive = index == _currentLyricIndex;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final viewportHeight = constraints.maxHeight;
+        // 计算上下留白高度：使得第 i 行 offset = i * _lyricItemHeight 时，该行刚好位于视口正中垂直线
+        final verticalPadding = ((viewportHeight - _lyricItemHeight) / 2).clamp(20.0, 600.0);
 
-        return InkWell(
-          onTap: () {
-            player.seek(Duration(milliseconds: line.timeMs));
-          },
-          borderRadius: BorderRadius.circular(8),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: AnimatedDefaultTextStyle(
-              duration: const Duration(milliseconds: 250),
-              style: TextStyle(
-                color: isActive ? Colors.white : Colors.white38,
-                fontSize: isActive ? 20 : 15,
-                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-                height: 1.4,
-                fontFamilyFallback: AppTheme.fontFallbacks,
-              ),
-              textAlign: TextAlign.center,
-              child: Text(line.text),
-            ),
+        return ListView.builder(
+          controller: _lyricScrollController,
+          padding: EdgeInsets.symmetric(
+            horizontal: 24,
+            vertical: verticalPadding,
           ),
+          itemCount: _lyrics.length,
+          itemBuilder: (context, index) {
+            final line = _lyrics[index];
+            final isActive = index == _currentLyricIndex;
+
+            return InkWell(
+              onTap: () {
+                player.seek(Duration(milliseconds: line.timeMs));
+              },
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                height: _lyricItemHeight,
+                alignment: Alignment.center,
+                child: AnimatedDefaultTextStyle(
+                  duration: const Duration(milliseconds: 250),
+                  style: TextStyle(
+                    color: isActive ? Colors.white : Colors.white38,
+                    fontSize: isActive ? 20 : 15,
+                    fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                    height: 1.4,
+                    fontFamilyFallback: AppTheme.fontFallbacks,
+                  ),
+                  textAlign: TextAlign.center,
+                  child: Text(
+                    line.text,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            );
+          },
         );
       },
     );
@@ -478,4 +497,3 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
     return '$m:$s';
   }
 }
-
