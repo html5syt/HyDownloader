@@ -5,6 +5,7 @@ import '../../providers/download_provider.dart';
 import '../../services/netease/music_service.dart';
 import '../widgets/song_tile.dart';
 import '../widgets/empty_state_view.dart';
+import '../widgets/audio_preview_bar.dart';
 
 /// 播客/电台详情页面
 /// 展示播客包含的声音节目列表，提供试听与单期/批量下载
@@ -77,85 +78,103 @@ class _PodcastDetailScreenState extends State<PodcastDetailScreen> {
             ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _errorMessage != null
-              ? EmptyStateView(
-                  icon: Icons.error_outline,
-                  title: '加载失败',
-                  subtitle: _errorMessage,
-                  actionText: '重试',
-                  onAction: _loadPrograms,
-                )
-              : _programs.isEmpty
-                  ? const EmptyStateView(
-                      icon: Icons.podcasts,
-                      title: '暂无声音节目',
+      body: Stack(
+        children: [
+          _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _errorMessage != null
+                  ? EmptyStateView(
+                      icon: Icons.error_outline,
+                      title: '加载失败',
+                      subtitle: _errorMessage,
+                      actionText: '重试',
+                      onAction: _loadPrograms,
                     )
-                  : ListView.builder(
-                      itemCount: _programs.length + 1,
-                      itemBuilder: (context, index) {
-                        if (index == 0) {
-                          // 顶部电台信息头部
-                          return Padding(
-                            padding: const EdgeInsets.all(16.0),
-                            child: Row(
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: Image.network(
-                                    widget.podcast.coverUrl,
-                                    width: 80,
-                                    height: 80,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) => Container(
-                                      width: 80,
-                                      height: 80,
-                                      color: colorScheme.surfaceContainerHighest,
-                                      child: const Icon(Icons.podcasts, size: 36),
+                  : _programs.isEmpty
+                      ? const EmptyStateView(
+                          icon: Icons.podcasts,
+                          title: '暂无声音节目',
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.only(bottom: 96),
+                          itemCount: _programs.length + 1,
+                          itemBuilder: (context, index) {
+                            if (index == 0) {
+                              // 顶部电台信息头部
+                              return Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Row(
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: widget.podcast.coverUrl.isNotEmpty
+                                          ? Image.network(
+                                              widget.podcast.coverUrl,
+                                              width: 80,
+                                              height: 80,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (context, error, stackTrace) => Container(
+                                                width: 80,
+                                                height: 80,
+                                                color: colorScheme.surfaceContainerHighest,
+                                                child: const Icon(Icons.podcasts, size: 36),
+                                              ),
+                                            )
+                                          : Container(
+                                              width: 80,
+                                              height: 80,
+                                              color: colorScheme.surfaceContainerHighest,
+                                              child: const Icon(Icons.podcasts, size: 36),
+                                            ),
                                     ),
-                                  ),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            widget.podcast.name,
+                                            style: theme.textTheme.titleMedium?.copyWith(
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            '主播: ${widget.podcast.djName.isEmpty ? "电台主播" : widget.podcast.djName}',
+                                            style: theme.textTheme.bodySmall,
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            '共 ${_programs.length} 期声音节目',
+                                            style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.primary),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        widget.podcast.name,
-                                        style: theme.textTheme.titleMedium?.copyWith(
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        '主播: ${widget.podcast.djName.isEmpty ? "网易云主播" : widget.podcast.djName}',
-                                        style: theme.textTheme.bodySmall,
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        '共 ${_programs.length} 期节目',
-                                        style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.primary),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        }
+                              );
+                            }
 
-                        final program = _programs[index - 1];
-                        return SongTile(
-                          song: program.mainSong,
-                          index: index,
-                        );
-                      },
-                    ),
+                            final program = _programs[index - 1];
+                            return SongTile(
+                              song: program.mainSong,
+                              index: index,
+                            );
+                          },
+                        ),
+
+          // 底部试听浮动条
+          const Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: AudioPreviewBar(),
+          ),
+        ],
+      ),
     );
   }
 }
-
-

@@ -1,13 +1,25 @@
 ﻿import 'package:flutter/material.dart';
 
 /// HyDownloader 全局主题与色彩配置
-/// 采用现代 Material 3 规范，支持浅色与深色自适应
+/// 采用现代 Material 3 规范，支持浅色与深色自适应，并配置全平台高品质中文字体回退
 class AppTheme {
   /// 主品牌色（继承 HyPlayer 标志性活力珊瑚红）
   static const Color primaryColor = Color(0xFFE53935);
 
   /// 次要点缀色
   static const Color secondaryColor = Color(0xFFFF5252);
+
+  /// 全平台中文字体回退优先级列表
+  /// 涵盖 Windows (微软雅黑), macOS/iOS (苹方), Android/Linux (思源黑体/Noto Sans)
+  static const List<String> fontFallbacks = [
+    'Microsoft YaHei',
+    'PingFang SC',
+    'Noto Sans CJK SC',
+    'Source Han Sans SC',
+    'Hiragino Sans GB',
+    'SimHei',
+    'sans-serif',
+  ];
 
   /// 浅色主题配置
   static ThemeData get lightTheme {
@@ -18,6 +30,7 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
+      fontFamilyFallback: fontFallbacks,
       scaffoldBackgroundColor: const Color(0xFFF8F9FA),
       appBarTheme: const AppBarTheme(
         centerTitle: false,
@@ -65,6 +78,7 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
+      fontFamilyFallback: fontFallbacks,
       scaffoldBackgroundColor: const Color(0xFF121212),
       appBarTheme: const AppBarTheme(
         centerTitle: false,

@@ -1,4 +1,4 @@
-// Microsoft Visual C++ generated resource script.
+﻿// Microsoft Visual C++ generated resource script.
 //
 #pragma code_page(65001)
 #include "resource.h"
@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.hyplayer" "\0"
-            VALUE "FileDescription", "hydownloader" "\0"
+            VALUE "FileDescription", "HyDownloader" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "hydownloader" "\0"
+            VALUE "InternalName", "HyDownloader" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.hyplayer. All rights reserved." "\0"
-            VALUE "OriginalFilename", "hydownloader.exe" "\0"
-            VALUE "ProductName", "hydownloader" "\0"
+            VALUE "OriginalFilename", "HyDownloader.exe" "\0"
+            VALUE "ProductName", "HyDownloader" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
@@ -119,3 +119,4 @@ END
 
 /////////////////////////////////////////////////////////////////////////////
 #endif    // not APSTUDIO_INVOKED
+
