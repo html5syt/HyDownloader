@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import '../../config/app_constants.dart';
 
 /// 全局内存图片缓存，避免重复拉取并实现即时呈现
 final Map<String, Uint8List> _globalImageMemoryCache = {};
@@ -10,7 +11,7 @@ final Dio _imageDio = Dio(
   BaseOptions(
     connectTimeout: const Duration(seconds: 6),
     receiveTimeout: const Duration(seconds: 10),
-    headers: AppNetworkImage.neteaseHeaders,
+    headers: AppConstants.neteaseImageHeaders,
     responseType: ResponseType.bytes,
   ),
 );
@@ -38,12 +39,7 @@ class AppNetworkImage extends StatelessWidget {
   final Widget? fallback;
 
   /// 网易云音乐图片防盗链与反爬验证所需的请求头
-  static const Map<String, String> neteaseHeaders = {
-    'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-    'Referer': 'https://music.163.com/',
-    'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-  };
+  static const Map<String, String> neteaseHeaders = AppConstants.neteaseImageHeaders;
 
   const AppNetworkImage({
     super.key,

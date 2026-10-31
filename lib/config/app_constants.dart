@@ -19,8 +19,11 @@ class AppConstants {
   /// 默认试听音质档位 (极高 320k，兼顾音质与秒开)
   static const String defaultPreviewAudioRate = 'exhigh';
 
-  /// 默认最大并发下载数
+  /// 默认最大并发同时下载歌曲任务数
   static const int defaultMaxConcurrentDownloads = 3;
+
+  /// 默认单首歌曲多线程分块下载数 (1 为单线程原生流式，大于 1 为多线程 Range 分块加速)
+  static const int defaultSingleSongThreads = 4;
 
   /// 文件名通配符：歌手
   static const String placeholderSinger = r'{$SINGER}';
@@ -43,6 +46,13 @@ class AppConstants {
   /// 网易云音乐接口基地址 (用于 EAPI 接口)
   static const String interfaceBaseUrl = 'https://interface.music.163.com';
 
+  /// 网易云音乐图片防盗链与反爬验证所需的统一请求头
+  static const Map<String, String> neteaseImageHeaders = {
+    'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'Referer': 'https://music.163.com/',
+  };
+
   /// SharedPreferences 键定义
   static const String prefKeyCookies = 'hydownloader_cookies';
   static const String prefKeyAdditionalParameters = 'hydownloader_additional_parameters';
@@ -54,6 +64,7 @@ class AppConstants {
   static const String prefKeyDownloadTranslation = 'hydownloader_download_translation';
   static const String prefKeyWriteMetadata = 'hydownloader_write_metadata';
   static const String prefKeyMaxConcurrent = 'hydownloader_max_concurrent';
+  static const String prefKeySingleSongThreads = 'hydownloader_single_song_threads';
   static const String prefKeySyncFolders = 'hydownloader_sync_folders';
   static const String prefKeyDarkMode = 'hydownloader_dark_mode';
 }

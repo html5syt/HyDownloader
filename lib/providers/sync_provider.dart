@@ -39,15 +39,19 @@ class SyncProvider extends ChangeNotifier {
   String get syncProgressText => _syncProgressText;
   String? get errorMessage => _errorMessage;
 
-  /// 统计：缺失项数量
+  /// 统计：全缺待下载项数量
   int get missingCount =>
       _syncItems.where((i) => i.type == SyncDifferenceType.missingInLocal).length;
 
-  /// 统计：多余项数量
+  /// 统计：本地已有直接拷贝项数量（免网络下载）
+  int get copyCount =>
+      _syncItems.where((i) => i.type == SyncDifferenceType.copyFromLocal).length;
+
+  /// 统计：多余待清理项数量
   int get extraCount =>
       _syncItems.where((i) => i.type == SyncDifferenceType.extraInLocal).length;
 
-  /// 统计：已匹配项数量
+  /// 统计：已匹配同步项数量
   int get matchedCount =>
       _syncItems.where((i) => i.type == SyncDifferenceType.matched).length;
 

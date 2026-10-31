@@ -120,6 +120,7 @@ class _SyncScreenState extends State<SyncScreen> {
     if (selectedItems.isEmpty) return;
 
     final extraCount = selectedItems.where((i) => i.type == SyncDifferenceType.extraInLocal).length;
+    final copyCount = selectedItems.where((i) => i.type == SyncDifferenceType.copyFromLocal).length;
     final missingCount = selectedItems.where((i) => i.type == SyncDifferenceType.missingInLocal).length;
 
     // 如果包含需要删除的本地歌曲，弹出二次确认对话框保证安全
@@ -130,7 +131,8 @@ class _SyncScreenState extends State<SyncScreen> {
           title: const Text('确认同步操作'),
           content: Text(
             '本次同步将包含：\n'
-            '• 下载 $missingCount 首缺失歌曲到本地\n'
+            '${missingCount > 0 ? "• 下载 $missingCount 首缺失歌曲（首份入主盘，后台异步拷贝）\n" : ""}'
+            '${copyCount > 0 ? "• 跨磁盘免下载直接拷贝 $copyCount 首歌曲\n" : ""}'
             '• 从本地永久删除 $extraCount 首多余歌曲文件及对应歌词\n\n'
             '删除操作不可撤回，是否确认继续？',
           ),
@@ -205,17 +207,19 @@ class _SyncScreenState extends State<SyncScreen> {
                 ),
               ),
 
-              // 2. 比对结果统计徽章与全选操作栏（固定吸顶或随滚）
+              // 2. 比对结果统计徽章与全选操作栏
               if (sync.syncItems.isNotEmpty) ...[
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                     child: Row(
                       children: [
-                        _buildStatBadge('缺失歌曲 (待下载)', sync.missingCount, Colors.blue, SyncDifferenceType.missingInLocal),
-                        const SizedBox(width: 8),
-                        _buildStatBadge('本地多余 (待清理)', sync.extraCount, Colors.red, SyncDifferenceType.extraInLocal),
-                        const SizedBox(width: 8),
+                        _buildStatBadge('待下载 (全缺)', sync.missingCount, Colors.blue, SyncDifferenceType.missingInLocal),
+                        const SizedBox(width: 6),
+                        _buildStatBadge('本地拷贝 (免下载)', sync.copyCount, Colors.teal, SyncDifferenceType.copyFromLocal),
+                        const SizedBox(width: 6),
+                        _buildStatBadge('多余 (待清理)', sync.extraCount, Colors.red, SyncDifferenceType.extraInLocal),
+                        const SizedBox(width: 6),
                         _buildStatBadge('已同步', sync.matchedCount, Colors.green, SyncDifferenceType.matched),
                       ],
                     ),
@@ -460,9 +464,9 @@ class _SyncScreenState extends State<SyncScreen> {
           ),
           child: Column(
             children: [
-              Text(count.toString(), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 16)),
+              Text(count.toString(), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 15)),
               const SizedBox(height: 2),
-              Text(label, style: TextStyle(color: color, fontSize: 10), maxLines: 1, overflow: TextOverflow.ellipsis),
+              Text(label, style: TextStyle(color: color, fontSize: 9.5), maxLines: 1, overflow: TextOverflow.ellipsis),
             ],
           ),
         ),
@@ -474,6 +478,10 @@ class _SyncScreenState extends State<SyncScreen> {
     Color typeColor;
     IconData typeIcon;
     switch (item.type) {
+      case SyncDifferenceType.copyFromLocal:
+        typeColor = Colors.teal;
+        typeIcon = Icons.copy_all_rounded;
+        break;
       case SyncDifferenceType.missingInLocal:
         typeColor = Colors.blue;
         typeIcon = Icons.cloud_download_outlined;
@@ -509,4 +517,3 @@ class _SyncScreenState extends State<SyncScreen> {
     );
   }
 }
-

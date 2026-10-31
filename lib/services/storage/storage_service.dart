@@ -159,16 +159,28 @@ class StorageService {
     await _prefs.setBool(AppConstants.prefKeyWriteMetadata, value);
   }
 
-  /// 获取最大并发下载数 (允许用户自由调整)
+  /// 获取同时下载歌曲的最大并发任务数 (默认 3，允许用户自由调整)
   int getMaxConcurrentDownloads() {
     return _prefs.getInt(AppConstants.prefKeyMaxConcurrent) ??
         AppConstants.defaultMaxConcurrentDownloads;
   }
 
-  /// 保存最大并发数 (无上限限制，允许任意自定义)
+  /// 保存同时下载歌曲的最大任务数
   Future<void> saveMaxConcurrentDownloads(int value) async {
     final effective = value < 1 ? 1 : value;
     await _prefs.setInt(AppConstants.prefKeyMaxConcurrent, effective);
+  }
+
+  /// 获取单首歌曲下载的分块线程数 (默认 4，设为 1 则为原生单连接流式下载)
+  int getSingleSongThreads() {
+    return _prefs.getInt(AppConstants.prefKeySingleSongThreads) ??
+        AppConstants.defaultSingleSongThreads;
+  }
+
+  /// 保存单首歌曲下载的分块线程数
+  Future<void> saveSingleSongThreads(int value) async {
+    final effective = value < 1 ? 1 : value;
+    await _prefs.setInt(AppConstants.prefKeySingleSongThreads, effective);
   }
 
   /// 获取记忆的用于歌曲文件同步的本地文件夹路径列表

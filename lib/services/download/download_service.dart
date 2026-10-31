@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import '../../config/app_constants.dart';
@@ -8,6 +9,7 @@ import '../../models/download_task.dart';
 import '../storage/storage_service.dart';
 import '../netease/music_service.dart';
 import '../netease/lyric_service.dart';
+
 import 'id3_tagger.dart';
 import 'lyric_writer.dart';
 
@@ -15,7 +17,7 @@ import 'lyric_writer.dart';
 typedef DownloadStatusListener = void Function(DownloadTask task);
 
 /// 核心下载服务管理器
-/// 负责并发队列调度、音频直链解析、流式文件下载、ID3 标签写入以及 LRC 歌词同步
+/// 负责任务并发队列调度、单曲多线程分块下载加速、音频直链解析、ID3 标签写入以及 LRC 歌词同步
 class DownloadService {
   final StorageService _storage = StorageService.instance;
   final NeteaseMusicService _musicService = NeteaseMusicService.instance;
@@ -127,6 +129,34 @@ class DownloadService {
     return task;
   }
 
+
+  /// 添加单曲下载并等待其下载完成（供同步等高级流程调度使用）
+  Future<DownloadTask> downloadSongAndWait(
+    Song song, {
+    String? quality,
+    String? targetDirectory,
+  }) async {
+    final task = await enqueueSong(
+      song,
+      quality: quality,
+      targetDirectory: targetDirectory,
+    );
+    if (task.status == DownloadStatus.completed || task.status == DownloadStatus.failed) {
+      return task;
+    }
+    final completer = Completer<DownloadTask>();
+    void listener(DownloadTask updated) {
+      if (updated.id == task.id) {
+        if (updated.status == DownloadStatus.completed || updated.status == DownloadStatus.failed) {
+          removeListener(listener);
+          if (!completer.isCompleted) completer.complete(updated);
+        }
+      }
+    }
+    addListener(listener);
+    return completer.future;
+  }
+
   /// 批量添加歌曲到下载队列
   Future<List<DownloadTask>> enqueueSongs(
     List<Song> songs, {
@@ -163,7 +193,7 @@ class DownloadService {
     }
   }
 
-  /// 启动单个下载任务执行
+  /// 启动单个下载任务执行 (支持单曲多线程分块下载)
   Future<void> _startTask(DownloadTask task) async {
     if (task.status != DownloadStatus.pending) return;
 
@@ -206,28 +236,58 @@ class DownloadService {
         await dir.create(recursive: true);
       }
 
-      // 2. 执行流式下载
-      await _dio.download(
-        downloadUrl,
-        finalFilePath,
-        cancelToken: cancelToken,
-        onReceiveProgress: (received, total) {
-          task.receivedBytes = received;
-          task.totalBytes = total;
-          if (total > 0) {
-            task.progress = received / total;
-          }
+      // 获取文件总大小
+      int totalBytes = (urlInfo['size'] is int) ? urlInfo['size'] as int : 0;
+      if (totalBytes <= 0) {
+        try {
+          final headRes = await _dio.head(
+            downloadUrl,
+            options: Options(headers: AppConstants.neteaseImageHeaders),
+          );
+          final cl = headRes.headers.value('content-length');
+          if (cl != null) totalBytes = int.tryParse(cl) ?? 0;
+        } catch (_) {}
+      }
 
-          final now = DateTime.now();
-          final elapsed = now.difference(lastTime).inMilliseconds;
-          if (elapsed >= 500) {
-            final diffBytes = received - lastBytes;
-            task.speedBytesPerSec = (diffBytes / (elapsed / 1000));
-            lastBytes = received;
-            lastTime = now;
-          }
-        },
-      );
+      final singleSongThreads = _storage.getSingleSongThreads();
+
+      // 回调闭包：计算总体实时进度与速度
+      void onProgressUpdate(int received, int total) {
+        task.receivedBytes = received;
+        task.totalBytes = total;
+        if (total > 0) {
+          task.progress = received / total;
+        }
+
+        final now = DateTime.now();
+        final elapsed = now.difference(lastTime).inMilliseconds;
+        if (elapsed >= 500) {
+          final diffBytes = received - lastBytes;
+          task.speedBytesPerSec = (diffBytes / (elapsed / 1000));
+          lastBytes = received;
+          lastTime = now;
+        }
+      }
+
+      // 2. 根据用户设置选择：单曲多线程分块下载 或 原生单连接下载
+      if (singleSongThreads > 1 && totalBytes > 256 * 1024) {
+        await _downloadMultiThreaded(
+          task: task,
+          url: downloadUrl,
+          targetPath: finalFilePath,
+          totalBytes: totalBytes,
+          threads: singleSongThreads,
+          cancelToken: cancelToken,
+          onProgress: onProgressUpdate,
+        );
+      } else {
+        await _downloadSingleThreaded(
+          url: downloadUrl,
+          targetPath: finalFilePath,
+          cancelToken: cancelToken,
+          onProgress: onProgressUpdate,
+        );
+      }
 
       // 3. 写入 ID3 / 元数据标签
       if (_storage.getWriteMetadata()) {
@@ -239,7 +299,10 @@ class DownloadService {
           try {
             final coverRes = await _dio.get<List<int>>(
               task.song.albumCoverUrl,
-              options: Options(responseType: ResponseType.bytes),
+              options: Options(
+                headers: AppConstants.neteaseImageHeaders,
+                responseType: ResponseType.bytes,
+              ),
             );
             if (coverRes.data != null) {
               coverBytes = Uint8List.fromList(coverRes.data!);
@@ -288,6 +351,112 @@ class DownloadService {
       _notify(task);
       _scheduleQueue(); // 自动调度下一个任务
     }
+  }
+
+  /// 单首歌曲多线程 Range 分块加速下载
+  Future<void> _downloadMultiThreaded({
+    required DownloadTask task,
+    required String url,
+    required String targetPath,
+    required int totalBytes,
+    required int threads,
+    required CancelToken cancelToken,
+    required void Function(int received, int total) onProgress,
+  }) async {
+    final actualThreads = min(threads, max(1, totalBytes ~/ (128 * 1024)));
+    final chunkSize = (totalBytes / actualThreads).ceil();
+
+    final downloadedPerChunk = List<int>.filled(actualThreads, 0);
+    final partFiles = <File>[];
+
+    try {
+      final futures = <Future<void>>[];
+
+      for (int i = 0; i < actualThreads; i++) {
+        final start = i * chunkSize;
+        final end = min((i + 1) * chunkSize - 1, totalBytes - 1);
+        final partFile = File('$targetPath.part_$i');
+        partFiles.add(partFile);
+
+        final chunkIndex = i;
+        futures.add(() async {
+          final res = await _dio.get<List<int>>(
+            url,
+            cancelToken: cancelToken,
+            options: Options(
+              headers: {
+                ...AppConstants.neteaseImageHeaders,
+                'Range': 'bytes=$start-$end',
+              },
+              responseType: ResponseType.bytes,
+            ),
+            onReceiveProgress: (chunkReceived, _) {
+              downloadedPerChunk[chunkIndex] = chunkReceived;
+              final totalDownloaded = downloadedPerChunk.reduce((a, b) => a + b);
+              onProgress(totalDownloaded, totalBytes);
+            },
+          );
+
+          if (res.data != null) {
+            await partFile.writeAsBytes(res.data!, flush: true);
+            downloadedPerChunk[chunkIndex] = res.data!.length;
+            final totalDownloaded = downloadedPerChunk.reduce((a, b) => a + b);
+            onProgress(totalDownloaded, totalBytes);
+          }
+        }());
+      }
+
+      await Future.wait(futures);
+
+      // 全部切片下载完成，按顺序合并写入目标文件
+      final finalFile = File(targetPath);
+      final sink = finalFile.openWrite();
+      for (final pf in partFiles) {
+        if (await pf.exists()) {
+          await sink.addStream(pf.openRead());
+        }
+      }
+      await sink.close();
+
+      // 清理临时切片
+      for (final pf in partFiles) {
+        if (await pf.exists()) {
+          await pf.delete();
+        }
+      }
+    } catch (e) {
+      // 若多线程分块下载失败，清理切片并尝试单线程降级下载
+      for (final pf in partFiles) {
+        if (await pf.exists()) {
+          try { await pf.delete(); } catch (_) {}
+        }
+      }
+      if (cancelToken.isCancelled) rethrow;
+
+      // 降级回退至单线程流式
+      await _downloadSingleThreaded(
+        url: url,
+        targetPath: targetPath,
+        cancelToken: cancelToken,
+        onProgress: onProgress,
+      );
+    }
+  }
+
+  /// 原生单连接流式下载
+  Future<void> _downloadSingleThreaded({
+    required String url,
+    required String targetPath,
+    required CancelToken cancelToken,
+    required void Function(int received, int total) onProgress,
+  }) async {
+    await _dio.download(
+      url,
+      targetPath,
+      cancelToken: cancelToken,
+      options: Options(headers: AppConstants.neteaseImageHeaders),
+      onReceiveProgress: onProgress,
+    );
   }
 
   /// 暂停任务

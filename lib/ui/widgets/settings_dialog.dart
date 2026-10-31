@@ -4,7 +4,7 @@ import '../../config/app_constants.dart';
 import '../../services/storage/storage_service.dart';
 
 /// 应用全局设置对话框
-/// 支持自定义试听预览音质、默认下载音质、任意并发下载线程数与文件保存路径
+/// 支持自定义试听预览音质、默认下载音质、任务并发数、单曲多线程数与文件保存路径
 class SettingsDialog extends StatefulWidget {
   const SettingsDialog({super.key});
 
@@ -25,31 +25,37 @@ class _SettingsDialogState extends State<SettingsDialog> {
 
   late String _downloadQuality;
   late String _previewQuality;
-  late int _maxConcurrentThreads;
+  late int _maxConcurrentDownloads;
+  late int _singleSongThreads;
   late String _downloadDir;
   late bool _downloadLyrics;
   late bool _downloadTranslation;
   late bool _writeMetadata;
 
-  final TextEditingController _threadController = TextEditingController();
+  final TextEditingController _concurrentController = TextEditingController();
+  final TextEditingController _singleSongThreadsController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _downloadQuality = _storage.getAudioRate();
     _previewQuality = _storage.getPreviewAudioRate();
-    _maxConcurrentThreads = _storage.getMaxConcurrentDownloads();
+    _maxConcurrentDownloads = _storage.getMaxConcurrentDownloads();
+    _singleSongThreads = _storage.getSingleSongThreads();
     _downloadLyrics = _storage.getDownloadLyrics();
     _downloadTranslation = _storage.getDownloadTranslation();
     _writeMetadata = _storage.getWriteMetadata();
-    _threadController.text = _maxConcurrentThreads.toString();
+
+    _concurrentController.text = _maxConcurrentDownloads.toString();
+    _singleSongThreadsController.text = _singleSongThreads.toString();
     _downloadDir = '';
     _loadDir();
   }
 
   @override
   void dispose() {
-    _threadController.dispose();
+    _concurrentController.dispose();
+    _singleSongThreadsController.dispose();
     super.dispose();
   }
 
@@ -73,12 +79,16 @@ class _SettingsDialogState extends State<SettingsDialog> {
   }
 
   Future<void> _saveAndClose() async {
-    final parsedThreads = int.tryParse(_threadController.text.trim()) ?? _maxConcurrentThreads;
+    final parsedConcurrent = int.tryParse(_concurrentController.text.trim()) ?? _maxConcurrentDownloads;
+    final effectiveConcurrent = parsedConcurrent < 1 ? 1 : parsedConcurrent;
+
+    final parsedThreads = int.tryParse(_singleSongThreadsController.text.trim()) ?? _singleSongThreads;
     final effectiveThreads = parsedThreads < 1 ? 1 : parsedThreads;
 
     await _storage.saveAudioRate(_downloadQuality);
     await _storage.savePreviewAudioRate(_previewQuality);
-    await _storage.saveMaxConcurrentDownloads(effectiveThreads);
+    await _storage.saveMaxConcurrentDownloads(effectiveConcurrent);
+    await _storage.saveSingleSongThreads(effectiveThreads);
     await _storage.saveDownloadLyrics(_downloadLyrics);
     await _storage.saveDownloadTranslation(_downloadTranslation);
     await _storage.saveWriteMetadata(_writeMetadata);
@@ -99,7 +109,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520, maxHeight: 620),
+        constraints: const BoxConstraints(maxWidth: 520, maxHeight: 680),
         child: Padding(
           padding: const EdgeInsets.all(20.0),
           child: Column(
@@ -153,7 +163,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
                         contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                       ),
                       items: const [
-                        DropdownMenuItem(value: 'standard', child: Text('标准品质 (128Kbps - 极速缓冲)')),
+                        DropdownMenuItem(value: 'standard', child: Text('标准品质 (128Kbps - 极速秒开)')),
                         DropdownMenuItem(value: 'higher', child: Text('较高品质 (192Kbps)')),
                         DropdownMenuItem(value: 'exhigh', child: Text('极高品质 (320Kbps - 推荐平衡)')),
                         DropdownMenuItem(value: 'lossless', child: Text('无损品质 (FLAC)')),
@@ -165,52 +175,97 @@ class _SettingsDialogState extends State<SettingsDialog> {
                     ),
                     const SizedBox(height: 16),
 
-                    // 3. 并发下载线程数（完美对齐 +- 号）
-                    _buildSectionHeader('并发下载线程数'),
+                    // 3. 同时下载歌曲数 (多任务并发)
+                    _buildSectionHeader('同时下载歌曲数 (任务并发)'),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         Expanded(
                           child: TextFormField(
-                            controller: _threadController,
+                            controller: _concurrentController,
                             keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
-                              labelText: '同时下载的最大任务数',
-                              hintText: '例如: 3, 5, 8, 16...',
+                              labelText: '同时下载的最大歌曲任务数',
+                              hintText: '例如: 3, 5, 8...',
                               contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                             ),
                           ),
                         ),
                         const SizedBox(width: 8),
                         IconButton.filledTonal(
-                          tooltip: '减少线程',
+                          tooltip: '减少任务数',
                           icon: const Icon(Icons.remove),
                           onPressed: () {
-                            final current = int.tryParse(_threadController.text) ?? 1;
+                            final current = int.tryParse(_concurrentController.text) ?? 1;
                             if (current > 1) {
-                              _threadController.text = (current - 1).toString();
+                              _concurrentController.text = (current - 1).toString();
                             }
                           },
                         ),
                         const SizedBox(width: 4),
                         IconButton.filledTonal(
-                          tooltip: '增加线程',
+                          tooltip: '增加任务数',
                           icon: const Icon(Icons.add),
                           onPressed: () {
-                            final current = int.tryParse(_threadController.text) ?? 1;
-                            _threadController.text = (current + 1).toString();
+                            final current = int.tryParse(_concurrentController.text) ?? 1;
+                            _concurrentController.text = (current + 1).toString();
                           },
                         ),
                       ],
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '允许根据您的带宽与设备性能任意设定',
+                      '控制下载队列中同时开始下载的歌曲数量',
                       style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
                     ),
                     const SizedBox(height: 16),
 
-                    // 4. 下载保存目录
+                    // 4. 单首歌曲多线程分块下载数
+                    _buildSectionHeader('单首歌曲下载线程数 (分块加速)'),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _singleSongThreadsController,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: '单曲多线程分块连接数',
+                              hintText: '例如: 1, 2, 4, 8, 16...',
+                              contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton.filledTonal(
+                          tooltip: '减少分块数',
+                          icon: const Icon(Icons.remove),
+                          onPressed: () {
+                            final current = int.tryParse(_singleSongThreadsController.text) ?? 1;
+                            if (current > 1) {
+                              _singleSongThreadsController.text = (current - 1).toString();
+                            }
+                          },
+                        ),
+                        const SizedBox(width: 4),
+                        IconButton.filledTonal(
+                          tooltip: '增加分块数',
+                          icon: const Icon(Icons.add),
+                          onPressed: () {
+                            final current = int.tryParse(_singleSongThreadsController.text) ?? 1;
+                            _singleSongThreadsController.text = (current + 1).toString();
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '为单首歌曲开启 Range 分块多线程并行下载。设为 1 为原生单连接流式，设为 4~16 可显著突破单连接限速',
+                      style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // 5. 下载保存目录
                     _buildSectionHeader('存储目录'),
                     Container(
                       padding: const EdgeInsets.all(12),
@@ -240,7 +295,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
                     ),
                     const SizedBox(height: 16),
 
-                    // 5. 歌词与元数据开关
+                    // 6. 歌词与元数据开关
                     _buildSectionHeader('歌词与歌曲信息'),
                     SwitchListTile(
                       title: const Text('下载同步歌词文件 (.lrc)', style: TextStyle(fontSize: 14)),
