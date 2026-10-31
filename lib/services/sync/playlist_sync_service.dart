@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import '../../models/song.dart';
 import '../../models/sync_item.dart';
 import '../../models/download_task.dart';
+import '../storage/storage_service.dart';
 import '../netease/music_service.dart';
 import '../download/download_service.dart';
 
@@ -12,6 +14,7 @@ import '../download/download_service.dart';
 class PlaylistSyncService {
   final NeteaseMusicService _musicService = NeteaseMusicService.instance;
   final DownloadService _downloadService = DownloadService.instance;
+  final StorageService _storage = StorageService.instance;
 
   /// 支持的本地音频文件扩展名
   static const Set<String> supportedAudioExtensions = {
@@ -176,116 +179,139 @@ class PlaylistSyncService {
     return s.trim();
   }
 
-  /// 执行同步操作：
-  /// - copyFromLocal：直接跨磁盘极速本地拷贝，完全免网络下载
-  /// - missingInLocal：优先下载 1 份至首盘，并在后台本地分发拷贝至其余磁盘
-  /// - extraInLocal：安全清理本地多余文件及关联歌词
+  /// 执行同步操作（支持按照最大并发数进行多任务并行下载与分发，杜绝串行阻塞）
   Future<void> executeSync({
     required List<SyncItem> items,
     required String targetDownloadFolder,
     void Function(int completed, int total)? onProgress,
   }) async {
     final selectedItems = items.where((i) => i.isSelected).toList();
+    if (selectedItems.isEmpty) return;
+
+    final maxConcurrent = _storage.getMaxConcurrentDownloads();
+    final queue = List<SyncItem>.from(selectedItems);
+    int activeCount = 0;
     int doneCount = 0;
+    final completer = Completer<void>();
 
-    for (final item in selectedItems) {
-      item.executionStatus = 'syncing';
-
-      try {
-        if (item.type == SyncDifferenceType.copyFromLocal &&
-            item.sourceFilePath != null &&
-            item.targetDirectories.isNotEmpty) {
-          // 策略 1 (需求 3): 本地直接拷贝，免下载
-          final sourceFile = File(item.sourceFilePath!);
-          if (await sourceFile.exists()) {
-            final fileName = p.basename(sourceFile.path);
-            final sourceLrc = File(p.setExtension(sourceFile.path, '.lrc'));
-            final hasLrc = await sourceLrc.exists();
-
-            for (final destDir in item.targetDirectories) {
-              final dDir = Directory(destDir);
-              if (!await dDir.exists()) await dDir.create(recursive: true);
-
-              final destFilePath = p.join(destDir, fileName);
-              await sourceFile.copy(destFilePath);
-
-              if (hasLrc) {
-                final destLrcPath = p.setExtension(destFilePath, '.lrc');
-                await sourceLrc.copy(destLrcPath);
-              }
-            }
-
-            item.executionStatus = 'completed';
-            item.executionMessage = '已从已有磁盘直接拷贝至 ${item.targetDirectories.length} 个文件夹 (免下载)';
-          } else {
-            item.executionStatus = 'failed';
-            item.executionMessage = '源文件不存在，无法进行本地拷贝';
-          }
-        } else if (item.type == SyncDifferenceType.missingInLocal &&
-            item.song != null &&
-            item.targetDirectories.isNotEmpty) {
-          // 策略 2 (需求 2): 优先确保第 1 份文件在主盘/高速盘下载完成，随后在后台本地拷贝
-          final primaryDir = item.targetDirectories.first;
-
-          final task = await _downloadService.downloadSongAndWait(
-            item.song!,
-            targetDirectory: primaryDir,
-          );
-
-          if (task.status == DownloadStatus.completed) {
-            final primaryFile = File(task.fullFilePath);
-
-            // 若配置了多个目标磁盘文件夹（如 U 盘），在首份落盘后通过本地拷贝快速分发
-            if (item.targetDirectories.length > 1 && await primaryFile.exists()) {
-              final fileName = p.basename(primaryFile.path);
-              final primaryLrc = File(p.setExtension(primaryFile.path, '.lrc'));
-              final hasLrc = await primaryLrc.exists();
-
-              for (final secondaryDir in item.targetDirectories.skip(1)) {
-                final sDir = Directory(secondaryDir);
-                if (!await sDir.exists()) await sDir.create(recursive: true);
-
-                final secFilePath = p.join(secondaryDir, fileName);
-                await primaryFile.copy(secFilePath);
-
-                if (hasLrc) {
-                  final secLrcPath = p.setExtension(secFilePath, '.lrc');
-                  await primaryLrc.copy(secLrcPath);
-                }
-              }
-            }
-
-            item.executionStatus = 'completed';
-            item.executionMessage = item.targetDirectories.length > 1
-                ? '已完成云端下载并分发至 ${item.targetDirectories.length} 个磁盘目录'
-                : '已下载完成';
-          } else {
-            item.executionStatus = 'failed';
-            item.executionMessage = task.errorMessage ?? '下载失败';
-          }
-        } else if (item.type == SyncDifferenceType.extraInLocal && item.localFilePath != null) {
-          // 策略 3: 清理本地多余音频及同名歌词
-          final file = File(item.localFilePath!);
-          if (await file.exists()) {
-            await file.delete();
-          }
-
-          final lrcPath = p.setExtension(item.localFilePath!, '.lrc');
-          final lrcFile = File(lrcPath);
-          if (await lrcFile.exists()) {
-            await lrcFile.delete();
-          }
-
-          item.executionStatus = 'completed';
-          item.executionMessage = '已从本地删除';
-        }
-      } catch (e) {
-        item.executionStatus = 'failed';
-        item.executionMessage = '处理失败: $e';
+    void processNext() {
+      if (queue.isEmpty && activeCount == 0) {
+        if (!completer.isCompleted) completer.complete();
+        return;
       }
 
-      doneCount++;
-      onProgress?.call(doneCount, selectedItems.length);
+      while (activeCount < maxConcurrent && queue.isNotEmpty) {
+        final item = queue.removeAt(0);
+        activeCount++;
+        item.executionStatus = 'syncing';
+
+        _executeSingleSyncItem(item, targetDownloadFolder).then((_) {
+          activeCount--;
+          doneCount++;
+          onProgress?.call(doneCount, selectedItems.length);
+          processNext();
+        }).catchError((e) {
+          activeCount--;
+          doneCount++;
+          item.executionStatus = 'failed';
+          item.executionMessage = '处理失败: $e';
+          onProgress?.call(doneCount, selectedItems.length);
+          processNext();
+        });
+      }
+    }
+
+    processNext();
+    await completer.future;
+  }
+
+  /// 执行单个同步项的处理
+  Future<void> _executeSingleSyncItem(SyncItem item, String targetDownloadFolder) async {
+    if (item.type == SyncDifferenceType.copyFromLocal &&
+        item.sourceFilePath != null &&
+        item.targetDirectories.isNotEmpty) {
+      // 策略 1: 本地直接拷贝，免网络下载
+      final sourceFile = File(item.sourceFilePath!);
+      if (await sourceFile.exists()) {
+        final fileName = p.basename(sourceFile.path);
+        final sourceLrc = File(p.setExtension(sourceFile.path, '.lrc'));
+        final hasLrc = await sourceLrc.exists();
+
+        for (final destDir in item.targetDirectories) {
+          final dDir = Directory(destDir);
+          if (!await dDir.exists()) await dDir.create(recursive: true);
+
+          final destFilePath = p.join(destDir, fileName);
+          await sourceFile.copy(destFilePath);
+
+          if (hasLrc) {
+            final destLrcPath = p.setExtension(destFilePath, '.lrc');
+            await sourceLrc.copy(destLrcPath);
+          }
+        }
+
+        item.executionStatus = 'completed';
+        item.executionMessage = '已从已有磁盘直接拷贝至 ${item.targetDirectories.length} 个文件夹 (免下载)';
+      } else {
+        item.executionStatus = 'failed';
+        item.executionMessage = '源文件不存在，无法进行本地拷贝';
+      }
+    } else if (item.type == SyncDifferenceType.missingInLocal &&
+        item.song != null &&
+        item.targetDirectories.isNotEmpty) {
+      // 策略 2: 优先确保第 1 份文件在主盘下载完成，随后在后台本地拷贝分发至其他磁盘
+      final primaryDir = item.targetDirectories.first;
+
+      final task = await _downloadService.downloadSongAndWait(
+        item.song!,
+        targetDirectory: primaryDir,
+      );
+
+      if (task.status == DownloadStatus.completed) {
+        final primaryFile = File(task.fullFilePath);
+
+        if (item.targetDirectories.length > 1 && await primaryFile.exists()) {
+          final fileName = p.basename(primaryFile.path);
+          final primaryLrc = File(p.setExtension(primaryFile.path, '.lrc'));
+          final hasLrc = await primaryLrc.exists();
+
+          for (final secondaryDir in item.targetDirectories.skip(1)) {
+            final sDir = Directory(secondaryDir);
+            if (!await sDir.exists()) await sDir.create(recursive: true);
+
+            final secFilePath = p.join(secondaryDir, fileName);
+            await primaryFile.copy(secFilePath);
+
+            if (hasLrc) {
+              final secLrcPath = p.setExtension(secFilePath, '.lrc');
+              await primaryLrc.copy(secLrcPath);
+            }
+          }
+        }
+
+        item.executionStatus = 'completed';
+        item.executionMessage = item.targetDirectories.length > 1
+            ? '已完成云端下载并分发至 ${item.targetDirectories.length} 个磁盘目录'
+            : '已下载完成';
+      } else {
+        item.executionStatus = 'failed';
+        item.executionMessage = task.errorMessage ?? '下载失败';
+      }
+    } else if (item.type == SyncDifferenceType.extraInLocal && item.localFilePath != null) {
+      // 策略 3: 清理本地多余音频及同名歌词
+      final file = File(item.localFilePath!);
+      if (await file.exists()) {
+        await file.delete();
+      }
+
+      final lrcPath = p.setExtension(item.localFilePath!, '.lrc');
+      final lrcFile = File(lrcPath);
+      if (await lrcFile.exists()) {
+        await lrcFile.delete();
+      }
+
+      item.executionStatus = 'completed';
+      item.executionMessage = '已从本地删除';
     }
   }
 }

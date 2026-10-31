@@ -29,13 +29,15 @@ class Id3Tagger {
     }
   }
 
-  /// 针对 MP3 封装 ID3v2.3 标签块并写入文件头部
+  /// 针对 MP3 封装 ID3v2.3 标签块并写入文件头部（采用原子写入以防损坏原始音频）
   static Future<void> _writeMp3Id3v2(
     File file,
     Song song,
     Uint8List? coverBytes,
   ) async {
     final originalBytes = await file.readAsBytes();
+    if (originalBytes.isEmpty) return;
+
     int audioDataOffset = 0;
 
     // 检查原有文件是否已有 ID3v2 头部
@@ -61,8 +63,8 @@ class Id3Tagger {
     _appendFrame(framesBytes, 'TALB', song.albumName);
     _appendFrame(framesBytes, 'TRCK', song.trackNumber.toString());
 
-    // 组装 APIC 封面图片 Frame（若提供）
-    if (coverBytes != null && coverBytes.isNotEmpty) {
+    // 组装 APIC 封面图片 Frame（若提供且小于 10MB）
+    if (coverBytes != null && coverBytes.isNotEmpty && coverBytes.length < 10 * 1024 * 1024) {
       _appendPictureFrame(framesBytes, coverBytes);
     }
 
@@ -94,14 +96,20 @@ class Id3Tagger {
       finalBuilder.add(originalBytes);
     }
 
-    await file.writeAsBytes(finalBuilder.takeBytes(), flush: true);
+    // 先写入临时文件，确保成功后再替换原文件，杜绝写入中断损坏文件
+    final tempFile = File('${file.path}.tag.tmp');
+    await tempFile.writeAsBytes(finalBuilder.takeBytes(), flush: true);
+    if (await tempFile.exists() && await tempFile.length() > originalBytes.length / 2) {
+      await tempFile.rename(file.path);
+    } else {
+      try { await tempFile.delete(); } catch (_) {}
+    }
   }
 
   /// 组装文本类 ID3v2 Frame
   static void _appendFrame(BytesBuilder builder, String frameId, String text) {
     if (text.isEmpty) return;
 
-    // 使用 UTF-16LE 编码配合 BOM 确保跨平台（Windows资源管理器、车载机、播放器）无乱码
     final textBytes = utf8.encode(text);
     // Frame Content: 1 字节编码标识(0x03 为 UTF-8) + 文本内容
     final frameData = Uint8List(1 + textBytes.length);
@@ -123,7 +131,7 @@ class Id3Tagger {
 
   /// 组装封面图片 APIC Frame
   static void _appendPictureFrame(BytesBuilder builder, Uint8List pictureBytes) {
-    final mimeType = 'image/jpeg';
+    const mimeType = 'image/jpeg';
     final mimeBytes = utf8.encode(mimeType);
 
     // APIC 结构: 编码(1) + MIME(\0结尾) + PictureType(1, 0x03为封面) + 描述(\0结尾) + 图片数据

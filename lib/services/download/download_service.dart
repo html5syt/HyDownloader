@@ -3,13 +3,13 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import '../../config/app_constants.dart';
 import '../../models/song.dart';
 import '../../models/download_task.dart';
 import '../storage/storage_service.dart';
 import '../netease/music_service.dart';
 import '../netease/lyric_service.dart';
-
 import 'id3_tagger.dart';
 import 'lyric_writer.dart';
 
@@ -22,7 +22,7 @@ class DownloadService {
   final StorageService _storage = StorageService.instance;
   final NeteaseMusicService _musicService = NeteaseMusicService.instance;
   final NeteaseLyricService _lyricService = NeteaseLyricService.instance;
-  final Dio _dio = Dio();
+  late final Dio _dio;
 
   /// 所有维护的下载任务队列列表
   final List<DownloadTask> _tasks = [];
@@ -39,7 +39,24 @@ class DownloadService {
   /// 单例实例
   static final DownloadService instance = DownloadService._internal();
 
-  DownloadService._internal();
+  DownloadService._internal() {
+    _dio = Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 15),
+        receiveTimeout: const Duration(seconds: 30),
+      ),
+    );
+
+    // 提高每主机的并发连接数上限，防止多任务与分块下载时被客户端内部限流超时
+    if (_dio.httpClientAdapter is IOHttpClientAdapter) {
+      (_dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
+        final client = HttpClient();
+        client.maxConnectionsPerHost = 64;
+        client.connectionTimeout = const Duration(seconds: 15);
+        return client;
+      };
+    }
+  }
 
   /// 获取当前所有任务的只读列表
   List<DownloadTask> get tasks => List.unmodifiable(_tasks);
@@ -54,9 +71,9 @@ class DownloadService {
     _listeners.remove(listener);
   }
 
-  /// 广播通知监听器
+  /// 广播通知监听器（使用副本遍历避免迭代中增删抛出 Concurrent modification）
   void _notify(DownloadTask task) {
-    for (final listener in _listeners) {
+    for (final listener in List<DownloadStatusListener>.of(_listeners)) {
       try {
         listener(task);
       } catch (_) {}
@@ -128,7 +145,6 @@ class DownloadService {
 
     return task;
   }
-
 
   /// 添加单曲下载并等待其下载完成（供同步等高级流程调度使用）
   Future<DownloadTask> downloadSongAndWait(
@@ -256,7 +272,7 @@ class DownloadService {
         task.receivedBytes = received;
         task.totalBytes = total;
         if (total > 0) {
-          task.progress = received / total;
+          task.progress = (received / total).clamp(0.0, 1.0);
         }
 
         final now = DateTime.now();
@@ -353,7 +369,7 @@ class DownloadService {
     }
   }
 
-  /// 单首歌曲多线程 Range 分块加速下载
+  /// 单首歌曲多线程 Range 分块加速下载（严格校验切片与完整性，任何异常自动单线程重试）
   Future<void> _downloadMultiThreaded({
     required DownloadTask task,
     required String url,
@@ -368,6 +384,7 @@ class DownloadService {
 
     final downloadedPerChunk = List<int>.filled(actualThreads, 0);
     final partFiles = <File>[];
+    final tempMergedFile = File('$targetPath.tmp');
 
     try {
       final futures = <Future<void>>[];
@@ -375,6 +392,7 @@ class DownloadService {
       for (int i = 0; i < actualThreads; i++) {
         final start = i * chunkSize;
         final end = min((i + 1) * chunkSize - 1, totalBytes - 1);
+        final expectedLen = end - start + 1;
         final partFile = File('$targetPath.part_$i');
         partFiles.add(partFile);
 
@@ -397,43 +415,63 @@ class DownloadService {
             },
           );
 
-          if (res.data != null) {
-            await partFile.writeAsBytes(res.data!, flush: true);
-            downloadedPerChunk[chunkIndex] = res.data!.length;
-            final totalDownloaded = downloadedPerChunk.reduce((a, b) => a + b);
-            onProgress(totalDownloaded, totalBytes);
+          // 核心校验：服务端必须返回 206 Partial Content，且切片长度必须与预期严格一致
+          if (res.statusCode != 206 || res.data == null || res.data!.length != expectedLen) {
+            throw Exception('切片 $chunkIndex 响应异常 (status: ${res.statusCode}, len: ${res.data?.length}, expected: $expectedLen)');
           }
+
+          await partFile.writeAsBytes(res.data!, flush: true);
+          downloadedPerChunk[chunkIndex] = res.data!.length;
+          final totalDownloaded = downloadedPerChunk.reduce((a, b) => a + b);
+          onProgress(totalDownloaded, totalBytes);
         }());
       }
 
       await Future.wait(futures);
 
-      // 全部切片下载完成，按顺序合并写入目标文件
-      final finalFile = File(targetPath);
-      final sink = finalFile.openWrite();
+      // 全部切片下载无误，先合并到 .tmp 临时文件并校验文件大小
+      final sink = tempMergedFile.openWrite();
       for (final pf in partFiles) {
-        if (await pf.exists()) {
-          await sink.addStream(pf.openRead());
+        if (!await pf.exists()) {
+          throw Exception('部分切片文件丢失，合并终止');
         }
+        await sink.addStream(pf.openRead());
       }
       await sink.close();
 
-      // 清理临时切片
-      for (final pf in partFiles) {
-        if (await pf.exists()) {
-          await pf.delete();
-        }
+      // 严格校验合并后的临时文件完整性
+      final mergedLen = await tempMergedFile.length();
+      if (mergedLen != totalBytes) {
+        throw Exception('合并文件长度异常: 实际 $mergedLen, 预期 $totalBytes');
       }
-    } catch (e) {
-      // 若多线程分块下载失败，清理切片并尝试单线程降级下载
+
+      // 原子重命名为目标文件
+      final finalFile = File(targetPath);
+      if (await finalFile.exists()) {
+        await finalFile.delete();
+      }
+      await tempMergedFile.rename(targetPath);
+
+      // 清理临时切片
       for (final pf in partFiles) {
         if (await pf.exists()) {
           try { await pf.delete(); } catch (_) {}
         }
       }
+    } catch (e) {
+      // 若多线程分块下载失败，彻底清理切片与临时文件
+      for (final pf in partFiles) {
+        if (await pf.exists()) {
+          try { await pf.delete(); } catch (_) {}
+        }
+      }
+      if (await tempMergedFile.exists()) {
+        try { await tempMergedFile.delete(); } catch (_) {}
+      }
+
       if (cancelToken.isCancelled) rethrow;
 
-      // 降级回退至单线程流式
+      // 降级回退至稳妥的原生单连接流式下载
       await _downloadSingleThreaded(
         url: url,
         targetPath: targetPath,
@@ -443,20 +481,34 @@ class DownloadService {
     }
   }
 
-  /// 原生单连接流式下载
+  /// 原生单连接流式下载（采用 .tmp 缓冲后原子重命名，防止半截损坏文件破坏目标路径）
   Future<void> _downloadSingleThreaded({
     required String url,
     required String targetPath,
     required CancelToken cancelToken,
     required void Function(int received, int total) onProgress,
   }) async {
-    await _dio.download(
-      url,
-      targetPath,
-      cancelToken: cancelToken,
-      options: Options(headers: AppConstants.neteaseImageHeaders),
-      onReceiveProgress: onProgress,
-    );
+    final tempFile = File('$targetPath.tmp');
+    try {
+      await _dio.download(
+        url,
+        tempFile.path,
+        cancelToken: cancelToken,
+        options: Options(headers: AppConstants.neteaseImageHeaders),
+        onReceiveProgress: onProgress,
+      );
+
+      final finalFile = File(targetPath);
+      if (await finalFile.exists()) {
+        await finalFile.delete();
+      }
+      await tempFile.rename(targetPath);
+    } catch (e) {
+      if (await tempFile.exists()) {
+        try { await tempFile.delete(); } catch (_) {}
+      }
+      rethrow;
+    }
   }
 
   /// 暂停任务
@@ -502,7 +554,7 @@ class DownloadService {
   /// 清理已完成的任务项
   void clearCompleted() {
     _tasks.removeWhere((t) => t.status == DownloadStatus.completed);
-    for (final listener in _listeners) {
+    for (final listener in List<DownloadStatusListener>.of(_listeners)) {
       try {
         if (_tasks.isNotEmpty) {
           listener(_tasks.first);
