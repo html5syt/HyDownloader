@@ -10,9 +10,9 @@ import '../netease/lyric_service.dart';
 import '../download/download_service.dart';
 
 /// 歌单与本地文件对比和同步核心服务
-/// 实现：在线歌单与多个不同速率本地文件夹（如 SSD/本地磁盘与外置U盘）智能双向对比、
-/// 跨盘本地复用免重复下载、首份极速落盘后台异步分发、以及多余曲目安全清理
-/// 同步时严格确保每一首歌曲及其对应的 .lrc 歌词文件在各目标目录中均完整同步
+/// 还原 1.1.0 经典本地磁盘智能比对与跨盘免下载复制架构，
+/// 支持多任务并发并行同步下载（解决 1.1.0 串行单任务慢速等待问题），
+/// 并严格确保音频及其对应的 .lrc 歌词文件在各目标目录中均完整同步
 class PlaylistSyncService {
   final NeteaseMusicService _musicService = NeteaseMusicService.instance;
   final NeteaseLyricService _lyricService = NeteaseLyricService.instance;
@@ -34,7 +34,7 @@ class PlaylistSyncService {
   static final PlaylistSyncService instance = PlaylistSyncService._internal();
   PlaylistSyncService._internal();
 
-  /// 对比在线歌单与多个本地文件夹的歌曲及歌词差异
+  /// 对比在线歌单与多个本地文件夹的歌曲差异 (还原 1.1.0 经典比对分类)
   ///
   /// [playlistId] 在线歌单 ID
   /// [localFolderPaths] 选定的一个或多个本地文件夹路径（可能包含固态硬盘与慢速U盘）
@@ -45,7 +45,7 @@ class PlaylistSyncService {
     // 1. 获取在线歌单完整歌曲列表
     final onlineSongs = await _musicService.getPlaylistSongs(playlistId);
 
-    // 2. 为每一个选定的本地目录分别建立音频文件与指纹索引
+    // 2. 为每一个选定的本地目录分别建立文件与指纹索引
     final folderFileMaps = <String, Map<String, File>>{};
     final folderFilesList = <String, List<File>>{};
 
@@ -77,60 +77,50 @@ class PlaylistSyncService {
     final matchedLocalFilesSet = <String>{};
     final resultItems = <SyncItem>[];
 
-    // 3. 逐首对比在线歌曲及其 .lrc 歌词在各个本地文件夹中的完整度
+    // 3. 逐首对比在线歌曲在各个本地文件夹中的分布情况
     for (final song in onlineSongs) {
-      final existingAudioFolders = <String, File>{};
-      final missingAudioFolders = <String>[];
-      final foldersNeedingLrc = <String>[];
+      final existingFolders = <String, File>{};
+      final missingFolders = <String>[];
 
       for (final folderPath in localFolderPaths) {
         final fMap = folderFileMaps[folderPath] ?? {};
         final matchedFile = _findMatchingLocalFile(song, fMap);
         if (matchedFile != null) {
-          existingAudioFolders[folderPath] = matchedFile;
+          existingFolders[folderPath] = matchedFile;
           matchedLocalFilesSet.add(matchedFile.path);
-
-          // 检查此文件夹中是否存在对应的 .lrc 歌词文件
-          final lrcFile = File(p.setExtension(matchedFile.path, '.lrc'));
-          if (!await lrcFile.exists()) {
-            foldersNeedingLrc.add(folderPath);
-          }
         } else {
-          missingAudioFolders.add(folderPath);
-          foldersNeedingLrc.add(folderPath);
+          missingFolders.add(folderPath);
         }
       }
 
-      if (missingAudioFolders.isEmpty && foldersNeedingLrc.isEmpty) {
-        // 情况 A: 所有选中的磁盘文件夹均已拥有完整音频和 .lrc 歌词
+      if (missingFolders.isEmpty) {
+        // 情况 A: 所有选中的磁盘文件夹均已拥有此歌曲
         resultItems.add(SyncItem(
           id: 'matched_${song.id}',
           type: SyncDifferenceType.matched,
           song: song,
-          localFilePath: existingAudioFolders.values.first.path,
-          localFileName: p.basename(existingAudioFolders.values.first.path),
-          localDirectory: existingAudioFolders.keys.first,
+          localFilePath: existingFolders.values.first.path,
+          localFileName: p.basename(existingFolders.values.first.path),
+          localDirectory: existingFolders.keys.first,
           targetDirectories: [],
           isSelected: false,
         ));
-      } else if (existingAudioFolders.isNotEmpty) {
-        // 情况 B: 至少一个磁盘已有该音频（例如本地电脑有，U盘缺失音频或缺失 lrc）
-        // 策略：不从网络重复下载音频，直接在本地磁盘间极速复制，并补全 lrc 歌词！
-        final sourceFile = existingAudioFolders.values.first;
-        final allTargetDirs = <String>{...missingAudioFolders, ...foldersNeedingLrc}.toList();
-
+      } else if (existingFolders.isNotEmpty) {
+        // 情况 B (需求 3): 部分磁盘已有该歌曲（例如本地电脑有，U盘缺失）
+        // 策略：不从网络重复下载，直接在本地磁盘间极速复制！
+        final sourceFile = existingFolders.values.first;
         resultItems.add(SyncItem(
           id: 'copy_${song.id}',
           type: SyncDifferenceType.copyFromLocal,
           song: song,
           sourceFilePath: sourceFile.path,
           localFileName: p.basename(sourceFile.path),
-          targetDirectories: allTargetDirs,
+          targetDirectories: List.from(missingFolders),
           isSelected: true,
         ));
       } else {
-        // 情况 C: 本地所有磁盘均缺失该歌曲
-        // 策略：优先从云端下载 1 份至首选磁盘并获取 lrc，随后在后台本地拷贝分发音频与 lrc
+        // 情况 C (需求 2): 本地所有磁盘均缺失该歌曲
+        // 策略：优先从云端下载 1 份至首选磁盘，随后在后台本地拷贝分发至其他磁盘 (如慢速U盘)
         resultItems.add(SyncItem(
           id: 'missing_${song.id}',
           type: SyncDifferenceType.missingInLocal,
@@ -192,7 +182,7 @@ class PlaylistSyncService {
     return s.trim();
   }
 
-  /// 执行同步操作（支持按照最大并发数进行多任务并行下载与分发，杜绝串行阻塞）
+  /// 执行同步操作（依据设置的最大并发数进行多任务并行处理，解决 1.1.0 串行排队问题）
   Future<void> executeSync({
     required List<SyncItem> items,
     required String targetDownloadFolder,
@@ -201,6 +191,7 @@ class PlaylistSyncService {
     final selectedItems = items.where((i) => i.isSelected).toList();
     if (selectedItems.isEmpty) return;
 
+    // 依照用户配置的最大并发数进行任务并发调度
     final maxConcurrent = _storage.getMaxConcurrentDownloads();
     final queue = List<SyncItem>.from(selectedItems);
     int activeCount = 0;
@@ -238,18 +229,18 @@ class PlaylistSyncService {
     await completer.future;
   }
 
-  /// 执行单个同步项的处理：严格同步音频与 .lrc 歌词文件
+  /// 执行单个同步项的处理：严格同步音频及其对应的 .lrc 歌词文件
   Future<void> _executeSingleSyncItem(SyncItem item, String targetDownloadFolder) async {
     if (item.type == SyncDifferenceType.copyFromLocal &&
         item.sourceFilePath != null &&
         item.targetDirectories.isNotEmpty) {
-      // 策略 1: 本地直接拷贝音频，并同步拷贝或补全 .lrc 歌词
+      // 策略 1 (需求 3): 本地直接拷贝，免网络下载；同时包括 .lrc 歌词文件
       final sourceFile = File(item.sourceFilePath!);
       if (await sourceFile.exists()) {
         final fileName = p.basename(sourceFile.path);
         final sourceLrc = File(p.setExtension(sourceFile.path, '.lrc'));
 
-        // 如果源目录缺少 .lrc 歌词文件，自动从云端获取并补全到源目录
+        // 如果源文件夹缺少 .lrc 歌词文件，自动从云端获取并补齐
         if (!await sourceLrc.exists() && item.song != null) {
           try {
             final lrcContent = await _lyricService.getFormattedLrc(
@@ -269,12 +260,12 @@ class PlaylistSyncService {
           if (!await dDir.exists()) await dDir.create(recursive: true);
 
           final destFilePath = p.join(destDir, fileName);
-          // 若目标文件夹无该音频，则拷贝
+          // 拷贝音频文件
           if (!await File(destFilePath).exists()) {
             await sourceFile.copy(destFilePath);
           }
 
-          // 严格同步拷贝 .lrc 歌词文件至目标目录
+          // 同步拷贝 .lrc 歌词文件
           if (hasLrc) {
             final destLrcPath = p.setExtension(destFilePath, '.lrc');
             final destLrcFile = File(destLrcPath);
@@ -285,15 +276,15 @@ class PlaylistSyncService {
         }
 
         item.executionStatus = 'completed';
-        item.executionMessage = '已完成音频与 LRC 歌词同步拷贝至 ${item.targetDirectories.length} 个文件夹';
+        item.executionMessage = '已从已有磁盘直接拷贝至 ${item.targetDirectories.length} 个文件夹 (含歌词)';
       } else {
         item.executionStatus = 'failed';
-        item.executionMessage = '源音频文件不存在，无法进行本地拷贝';
+        item.executionMessage = '源文件不存在，无法进行本地拷贝';
       }
     } else if (item.type == SyncDifferenceType.missingInLocal &&
         item.song != null &&
         item.targetDirectories.isNotEmpty) {
-      // 策略 2: 优先确保第 1 份文件在主盘下载完成（含音频与 LRC 歌词），随后在后台本地拷贝分发至其他磁盘
+      // 策略 2 (需求 2): 优先确保第 1 份文件在主盘/高速盘下载完成（含音频与歌词），随后在后台本地拷贝
       final primaryDir = item.targetDirectories.first;
 
       final task = await _downloadService.downloadSongAndWait(
@@ -320,6 +311,7 @@ class PlaylistSyncService {
 
         final hasLrc = await primaryLrc.exists();
 
+        // 若配置了多个目标磁盘文件夹（如 U 盘），在首份落盘后通过本地拷贝快速分发
         if (item.targetDirectories.length > 1 && await primaryFile.exists()) {
           final fileName = p.basename(primaryFile.path);
 
@@ -330,7 +322,7 @@ class PlaylistSyncService {
             final secFilePath = p.join(secondaryDir, fileName);
             await primaryFile.copy(secFilePath);
 
-            // 同步拷贝 .lrc 歌词文件到各个分发目标磁盘
+            // 同步拷贝 .lrc 歌词文件
             if (hasLrc) {
               final secLrcPath = p.setExtension(secFilePath, '.lrc');
               await primaryLrc.copy(secLrcPath);
@@ -340,14 +332,14 @@ class PlaylistSyncService {
 
         item.executionStatus = 'completed';
         item.executionMessage = item.targetDirectories.length > 1
-            ? '已完成云端下载并同步分发音频与歌词至 ${item.targetDirectories.length} 个磁盘'
+            ? '已完成云端下载并分发至 ${item.targetDirectories.length} 个磁盘目录 (含歌词)'
             : '已下载完成 (含歌词)';
       } else {
         item.executionStatus = 'failed';
         item.executionMessage = task.errorMessage ?? '下载失败';
       }
     } else if (item.type == SyncDifferenceType.extraInLocal && item.localFilePath != null) {
-      // 策略 3: 清理本地多余音频及同名 .lrc 歌词
+      // 策略 3: 清理本地多余音频及同名歌词
       final file = File(item.localFilePath!);
       if (await file.exists()) {
         await file.delete();
