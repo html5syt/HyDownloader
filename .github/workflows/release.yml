@@ -295,22 +295,26 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Build macOS and unsigned iOS
+      - name: Build macOS
         run: |
           VERSION='${{ needs.release_metadata.outputs.app_version }}'
           BUILD_NAME="${VERSION#v}"
           flutter config --enable-macos-desktop
           flutter pub get
           flutter build macos --release --build-name="$BUILD_NAME" --dart-define=APP_VERSION="$VERSION"
+          mkdir -p artifacts
+          MACOS_APP="$(find build/macos/Build/Products -name '*.app' -print -quit)"
+          if [ -n "$MACOS_APP" ]; then
+            ditto -c -k --sequesterRsrc --keepParent "$MACOS_APP" artifacts/${APP_NAME}-macos.zip
+          fi
+
+      - name: Build unsigned iOS
+        run: |
+          VERSION='${{ needs.release_metadata.outputs.app_version }}'
+          BUILD_NAME="${VERSION#v}"
           flutter build ios --release --no-codesign --build-name="$BUILD_NAME" --dart-define=APP_VERSION="$VERSION"
           mkdir -p artifacts
-          MACOS_APP="$(find build/macos/Build/Products -maxdepth 2 -name '*.app' -print -quit)"
-          if [ -z "$MACOS_APP" ]; then
-            echo "No macOS .app bundle found."
-            exit 1
-          fi
-          ditto -c -k --sequesterRsrc --keepParent "$MACOS_APP" artifacts/${APP_NAME}-macos.zip
-          IOS_APP="$(find build/ios -maxdepth 3 -name '*.app' -print -quit)"
+          IOS_APP="$(find build/ios -name '*.app' -print -quit)"
           if [ -n "$IOS_APP" ]; then
             ditto -c -k --sequesterRsrc --keepParent "$IOS_APP" artifacts/${APP_NAME}-ios-unsigned.zip
           fi

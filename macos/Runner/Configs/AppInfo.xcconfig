@@ -5,11 +5,12 @@
 // 'flutter create' template.
 
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = HyDownloader
+PRODUCT_NAME = hydownloader
 
 // The application's bundle identifier
 PRODUCT_BUNDLE_IDENTIFIER = com.hyplayer.hydownloader
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright 漏 2026 com.hyplayer. All rights reserved.
+
 

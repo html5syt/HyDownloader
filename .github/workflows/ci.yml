@@ -141,18 +141,22 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Build macOS and unsigned iOS
+      - name: Build macOS
         run: |
           flutter config --enable-macos-desktop
           flutter pub get
           flutter build macos --debug
-          flutter build ios --debug --no-codesign
           mkdir -p artifacts
-          MACOS_APP="$(find build/macos/Build/Products -maxdepth 2 -name '*.app' -print -quit)"
+          MACOS_APP="$(find build/macos/Build/Products -name '*.app' -print -quit)"
           if [ -n "$MACOS_APP" ]; then
             ditto -c -k --sequesterRsrc --keepParent "$MACOS_APP" artifacts/${APP_NAME}-macos-debug.zip
           fi
-          IOS_APP="$(find build/ios -maxdepth 3 -name '*.app' -print -quit)"
+
+      - name: Build unsigned iOS
+        run: |
+          flutter build ios --debug --no-codesign
+          mkdir -p artifacts
+          IOS_APP="$(find build/ios -name '*.app' -print -quit)"
           if [ -n "$IOS_APP" ]; then
             ditto -c -k --sequesterRsrc --keepParent "$IOS_APP" artifacts/${APP_NAME}-ios-unsigned-debug.zip
           fi
