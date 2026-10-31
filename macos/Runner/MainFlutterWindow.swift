@@ -6,11 +6,11 @@ class MainFlutterWindow: NSWindow {
     let flutterViewController = FlutterViewController()
     let windowFrame = self.frame
     self.contentViewController = flutterViewController
-    self.setFrame(windowFrame, display: true)`r`n    self.title = "HyDownloader"
+    self.setFrame(windowFrame, display: true)
+    self.title = "HyDownloader"
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 
     super.awakeFromNib()
   }
 }
-

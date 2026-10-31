@@ -12,7 +12,9 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
-	<key>CFBundleDisplayName</key>`r`n	<string>HyDownloader</string>`r`n	<key>CFBundleName</key>
+	<key>CFBundleDisplayName</key>
+	<string>HyDownloader</string>
+	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
@@ -30,4 +32,3 @@
 	<string>NSApplication</string>
 </dict>
 </plist>
-
