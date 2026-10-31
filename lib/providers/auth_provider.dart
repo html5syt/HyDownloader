@@ -1,4 +1,4 @@
-﻿import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart';
 import '../models/auth_state.dart';
 import '../models/user_profile.dart';
 import '../services/netease/auth_service.dart';

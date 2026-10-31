@@ -1,4 +1,4 @@
-﻿import 'song.dart';
+import 'song.dart';
 
 /// 下载任务执行状态枚举
 enum DownloadStatus {

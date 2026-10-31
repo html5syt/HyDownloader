@@ -1,4 +1,4 @@
-﻿import 'song.dart';
+import 'song.dart';
 
 /// 歌单与本地文件同步差异类型
 enum SyncDifferenceType {

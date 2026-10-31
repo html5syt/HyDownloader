@@ -1,4 +1,4 @@
-﻿import 'user_profile.dart';
+import 'user_profile.dart';
 
 /// 登录凭证类型枚举
 enum LoginMethod {

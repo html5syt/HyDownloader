@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'package:path/path.dart' as p;
 import '../../models/song.dart';
 import '../../models/sync_item.dart';

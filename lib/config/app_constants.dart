@@ -1,4 +1,4 @@
-﻿/// HyDownloader 全局应用常量定义
+/// HyDownloader 全局应用常量定义
 /// 包含 API 地址、音质档位、下载命名通配符、存储键等配置
 class AppConstants {
   /// 应用显示名称

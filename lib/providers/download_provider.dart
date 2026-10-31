@@ -1,4 +1,4 @@
-﻿import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart';
 import '../models/song.dart';
 import '../models/download_task.dart';
 import '../services/download/download_service.dart';

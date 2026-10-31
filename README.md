@@ -1,4 +1,4 @@
-﻿# HyDownloader
+# HyDownloader
 
 <div align="center">
   <img src="assets/icon.png" width="128" height="128" alt="HyDownloader Logo" />

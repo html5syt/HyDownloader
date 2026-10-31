@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 /// 通用空数据与错误占位视图组件
 class EmptyStateView extends StatelessWidget {

@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'package:path/path.dart' as p;
 
 /// LRC 歌词文件持久化写入工具

@@ -1,4 +1,4 @@
-﻿import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart';
 import '../models/song.dart';
 import '../services/audio/preview_player_service.dart';
 

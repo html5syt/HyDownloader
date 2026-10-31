@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:math';
 import '../../models/user_profile.dart';
 import '../../models/auth_state.dart';

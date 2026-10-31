@@ -1,4 +1,4 @@
-﻿import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart';
 import '../models/playlist.dart';
 import '../models/sync_item.dart';
 import '../services/sync/playlist_sync_service.dart';

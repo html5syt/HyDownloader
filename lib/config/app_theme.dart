@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 /// HyDownloader 全局主题与色彩配置
 /// 采用现代 Material 3 规范，支持浅色与深色自适应，并配置全平台高品质中文字体回退

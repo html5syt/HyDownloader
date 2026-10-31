@@ -1,4 +1,4 @@
-﻿import 'netease_client.dart';
+import 'netease_client.dart';
 
 /// 单行歌词数据结构
 class LyricLine {

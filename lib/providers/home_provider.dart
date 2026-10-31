@@ -1,4 +1,4 @@
-﻿import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart';
 import '../models/playlist.dart';
 import '../models/podcast.dart';
 import '../models/search_result.dart';

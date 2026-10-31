@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'package:audioplayers/audioplayers.dart';
 import '../../models/song.dart';
 import '../netease/music_service.dart';

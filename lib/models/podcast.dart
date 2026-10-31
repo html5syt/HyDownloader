@@ -1,4 +1,4 @@
-﻿import 'song.dart';
+import 'song.dart';
 
 /// 播客 / 声音电台实体模型
 class Podcast {
