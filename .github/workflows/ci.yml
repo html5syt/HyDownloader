@@ -107,7 +107,7 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libasound2-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libasound2-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-good1.0-dev libsecret-1-dev
 
       - uses: subosito/flutter-action@v2
         with:
@@ -148,8 +148,14 @@ jobs:
           flutter build macos --debug
           flutter build ios --debug --no-codesign
           mkdir -p artifacts
-          ditto -c -k --sequesterRsrc --keepParent build/macos/Build/Products/Debug/HyDownloader.app artifacts/${APP_NAME}-macos-debug.zip || true
-          ditto -c -k --sequesterRsrc --keepParent build/ios/iphoneos/Runner.app artifacts/${APP_NAME}-ios-unsigned-debug.zip || true
+          MACOS_APP="$(find build/macos/Build/Products -maxdepth 2 -name '*.app' -print -quit)"
+          if [ -n "$MACOS_APP" ]; then
+            ditto -c -k --sequesterRsrc --keepParent "$MACOS_APP" artifacts/${APP_NAME}-macos-debug.zip
+          fi
+          IOS_APP="$(find build/ios -maxdepth 3 -name '*.app' -print -quit)"
+          if [ -n "$IOS_APP" ]; then
+            ditto -c -k --sequesterRsrc --keepParent "$IOS_APP" artifacts/${APP_NAME}-ios-unsigned-debug.zip
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
