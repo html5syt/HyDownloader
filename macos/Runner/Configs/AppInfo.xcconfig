@@ -11,6 +11,4 @@ PRODUCT_NAME = hydownloader
 PRODUCT_BUNDLE_IDENTIFIER = com.hyplayer.hydownloader
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright 漏 2026 com.hyplayer. All rights reserved.
-
-
+PRODUCT_COPYRIGHT = Copyright (c) 2026 com.hyplayer. All rights reserved.

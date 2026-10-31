@@ -40,8 +40,8 @@ jobs:
       - name: Run automated test suite
         run: flutter test
 
-  android_build:
-    name: Build Android
+  android:
+    name: Android
     needs: test_and_analyze
     runs-on: ubuntu-latest
     steps:
@@ -70,8 +70,8 @@ jobs:
           name: android-debug
           path: artifacts/*
 
-  windows_build:
-    name: Build Windows
+  windows:
+    name: Windows
     needs: test_and_analyze
     runs-on: windows-latest
     steps:
@@ -83,7 +83,7 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Build Windows Desktop
+      - name: Build Windows
         shell: powershell
         run: |
           flutter config --enable-windows-desktop
@@ -97,8 +97,8 @@ jobs:
           name: windows-debug
           path: artifacts/*
 
-  linux_build:
-    name: Build Linux
+  linux:
+    name: Linux
     needs: test_and_analyze
     runs-on: ubuntu-latest
     steps:
@@ -115,7 +115,7 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Build Linux Desktop
+      - name: Build Linux
         run: |
           flutter config --enable-linux-desktop
           flutter pub get
@@ -128,8 +128,8 @@ jobs:
           name: linux-debug
           path: artifacts/*
 
-  apple_build:
-    name: Build macOS & iOS
+  apple:
+    name: macOS and iOS
     needs: test_and_analyze
     runs-on: macos-latest
     steps:
@@ -141,21 +141,18 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Build macOS
+      - name: Build macOS and unsigned iOS
         run: |
+          VERSION="${GITHUB_SHA:0:8}"
           flutter config --enable-macos-desktop
           flutter pub get
-          flutter build macos --debug
+          flutter build macos --debug --dart-define=APP_VERSION="$VERSION"
+          flutter build ios --debug --no-codesign --dart-define=APP_VERSION="$VERSION"
           mkdir -p artifacts
           MACOS_APP="$(find build/macos/Build/Products -name '*.app' -print -quit)"
           if [ -n "$MACOS_APP" ]; then
             ditto -c -k --sequesterRsrc --keepParent "$MACOS_APP" artifacts/${APP_NAME}-macos-debug.zip
           fi
-
-      - name: Build unsigned iOS
-        run: |
-          flutter build ios --debug --no-codesign
-          mkdir -p artifacts
           IOS_APP="$(find build/ios -name '*.app' -print -quit)"
           if [ -n "$IOS_APP" ]; then
             ditto -c -k --sequesterRsrc --keepParent "$IOS_APP" artifacts/${APP_NAME}-ios-unsigned-debug.zip
