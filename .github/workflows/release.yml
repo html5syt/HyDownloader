@@ -59,7 +59,7 @@ jobs:
           title = message.splitlines()[0].strip() if message.splitlines() else ref_name
           semver_tag = re.compile(r"^v\d+\.\d+\.\d+$")
           release_meta = re.compile(
-              r"\[release\s+ver=\"(v\d+\.\d+\.\d+)\"\s*,\s*pre=(true|false)\s*,\s*draft=(true|false)\]"
+              r"\[release\s+ver\s*=\s*\"?(v\d+\.\d+\.\d+)\"?\s*,\s*pre\s*=\s*(true|false)\s*,\s*draft\s*=\s*(true|false)\]"
           )
 
           should_release = False
