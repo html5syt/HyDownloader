@@ -5,7 +5,7 @@ import '../detail/fullscreen_player_screen.dart';
 import 'app_network_image.dart';
 
 /// 全局底部浮动试听控制栏
-/// 支持拖拽进度条调进度、显示时长、点击直接展开类似 HyPlayer 的全屏歌词预览
+/// 支持拖拽进度条调进度、显示时长、上一首/暂停/下一首完整切歌控制，点击直接展开全屏歌词预览
 class AudioPreviewBar extends StatelessWidget {
   const AudioPreviewBar({super.key});
 
@@ -23,6 +23,8 @@ class AudioPreviewBar extends StatelessWidget {
     final durMs = player.duration.inMilliseconds.toDouble();
     final sliderMax = durMs > 0 ? durMs : 1.0;
     final sliderVal = posMs.clamp(0.0, sliderMax);
+
+    final isNarrow = MediaQuery.of(context).size.width < 400;
 
     return InkWell(
       onTap: () {
@@ -43,7 +45,12 @@ class AudioPreviewBar extends StatelessWidget {
         );
       },
       child: Container(
-        margin: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+        margin: EdgeInsets.fromLTRB(
+          isNarrow ? 8 : 12,
+          4,
+          isNarrow ? 8 : 12,
+          isNarrow ? 6 : 10,
+        ),
         decoration: BoxDecoration(
           color: theme.cardColor,
           borderRadius: BorderRadius.circular(16),
@@ -83,20 +90,23 @@ class AudioPreviewBar extends StatelessWidget {
             ),
 
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              padding: EdgeInsets.symmetric(
+                horizontal: isNarrow ? 8 : 12,
+                vertical: 4,
+              ),
               child: Row(
                 children: [
-                  // 封面 (使用防盗链 AppNetworkImage)
+                  // 封面
                   AppNetworkImage(
                     url: song.albumCoverUrl,
-                    width: 44,
-                    height: 44,
+                    width: isNarrow ? 38 : 42,
+                    height: isNarrow ? 38 : 42,
                     borderRadius: BorderRadius.circular(8),
-                    fallback: _buildFallbackCover(colorScheme),
+                    fallback: _buildFallbackCover(colorScheme, isNarrow ? 38 : 42),
                   ),
-                  const SizedBox(width: 12),
+                  SizedBox(width: isNarrow ? 8 : 12),
 
-                  // 歌曲名与歌手、时长
+                  // 歌曲名与歌手、时长（自适应弹性布局，防小屏溢出）
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -106,6 +116,7 @@ class AudioPreviewBar extends StatelessWidget {
                           song.name,
                           style: theme.textTheme.bodyMedium?.copyWith(
                             fontWeight: FontWeight.bold,
+                            fontSize: isNarrow ? 13 : 14,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -117,19 +128,18 @@ class AudioPreviewBar extends StatelessWidget {
                               child: Text(
                                 song.artistString,
                                 style: theme.textTheme.bodySmall?.copyWith(
-                                  fontSize: 11,
+                                  fontSize: 10.5,
                                   color: theme.textTheme.bodySmall?.color?.withAlpha(160),
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            // 显示具体时长进度 (例如 0:31 / 2:54)
+                            const SizedBox(width: 6),
                             Text(
                               '${_formatDuration(player.position)} / ${_formatDuration(player.duration)}',
                               style: TextStyle(
-                                fontSize: 11,
+                                fontSize: 10.5,
                                 fontWeight: FontWeight.w600,
                                 color: colorScheme.primary,
                               ),
@@ -140,38 +150,61 @@ class AudioPreviewBar extends StatelessWidget {
                     ),
                   ),
 
-                  // 全屏预览图标提示
+                  // 上一首按钮
                   IconButton(
-                    tooltip: '全屏歌词预览',
-                    icon: const Icon(Icons.fullscreen, size: 24),
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const FullscreenPlayerScreen()),
-                      );
-                    },
+                    tooltip: '上一首',
+                    padding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    icon: Icon(
+                      Icons.skip_previous_rounded,
+                      size: isNarrow ? 22 : 24,
+                      color: player.canSwitch ? colorScheme.onSurface : colorScheme.onSurface.withAlpha(80),
+                    ),
+                    onPressed: player.canSwitch ? () => player.playPrevious() : null,
                   ),
 
                   // 播放 / 暂停按钮
                   IconButton(
+                    tooltip: player.isPlaying ? '暂停' : '播放',
+                    padding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                     icon: player.isLoading
                         ? const SizedBox(
-                            width: 20,
-                            height: 20,
+                            width: 18,
+                            height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : Icon(
                             player.isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
                             color: colorScheme.primary,
-                            size: 34,
+                            size: isNarrow ? 30 : 34,
                           ),
                     onPressed: () => player.togglePlayPause(),
+                  ),
+
+                  // 下一首按钮
+                  IconButton(
+                    tooltip: '下一首',
+                    padding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    icon: Icon(
+                      Icons.skip_next_rounded,
+                      size: isNarrow ? 22 : 24,
+                      color: player.canSwitch ? colorScheme.onSurface : colorScheme.onSurface.withAlpha(80),
+                    ),
+                    onPressed: player.canSwitch ? () => player.playNext() : null,
                   ),
 
                   // 关闭试听条
                   IconButton(
                     tooltip: '关闭试听',
-                    icon: const Icon(Icons.close, size: 20),
+                    padding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                    icon: const Icon(Icons.close, size: 18),
                     onPressed: () => player.stop(),
                   ),
                 ],
@@ -183,12 +216,12 @@ class AudioPreviewBar extends StatelessWidget {
     );
   }
 
-  Widget _buildFallbackCover(ColorScheme colorScheme) {
+  Widget _buildFallbackCover(ColorScheme colorScheme, double size) {
     return Container(
-      width: 44,
-      height: 44,
+      width: size,
+      height: size,
       color: colorScheme.primary.withAlpha(30),
-      child: Icon(Icons.music_note, color: colorScheme.primary, size: 22),
+      child: Icon(Icons.music_note, color: colorScheme.primary, size: size * 0.5),
     );
   }
 

@@ -1,15 +1,17 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../models/sync_item.dart';
 import '../../providers/sync_provider.dart';
 import '../../providers/home_provider.dart';
+import '../../services/storage/permission_service.dart';
 import '../widgets/empty_state_view.dart';
 import '../widgets/app_network_image.dart';
 
 /// 歌单文件双向同步页面
 /// 支持在线歌单与多个本地文件夹比对，比对完成后可灵活折叠展开配置面板，
-/// 配合列表自然滑动收起，大幅提升长列表的可视区域
+/// 自适应移动端小屏与桌面端宽屏，主动申请并管理移动端存储卡与 U 盘读写权限
 class SyncScreen extends StatefulWidget {
   const SyncScreen({super.key});
 
@@ -23,21 +25,49 @@ class _SyncScreenState extends State<SyncScreen> {
   /// 配置面板展开/收起状态（比对完成后自动收起以最大化列表空间）
   bool _isConfigExpanded = true;
 
+  /// 是否已具备外部存储访问权限（针对移动端 Android）
+  bool _hasStoragePermission = true;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<SyncProvider>().loadSavedFolders();
+      _checkStoragePermission();
     });
   }
 
-  /// 弹出本地文件夹选择器
+  /// 检查存储权限
+  Future<void> _checkStoragePermission() async {
+    final granted = await PermissionService.instance.isStoragePermissionGranted();
+    if (mounted) {
+      setState(() {
+        _hasStoragePermission = granted;
+      });
+    }
+  }
+
+  /// 弹出本地文件夹选择器（主动申请并确保存储权限）
   Future<void> _pickFolder() async {
-    final path = await FilePicker.getDirectoryPath(
-      dialogTitle: '选择要参与比对的本地音乐文件夹',
-    );
-    if (path != null && path.isNotEmpty && mounted) {
-      await context.read<SyncProvider>().addFolder(path);
+    // 主动检查并申请 Android 存储权限
+    final hasPerm = await PermissionService.instance.requestStoragePermission();
+    if (mounted) {
+      setState(() => _hasStoragePermission = hasPerm);
+    }
+
+    try {
+      final path = await FilePicker.getDirectoryPath(
+        dialogTitle: '选择要参与比对的本地音乐文件夹',
+      );
+      if (path != null && path.isNotEmpty && mounted) {
+        await context.read<SyncProvider>().addFolder(path);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('选择文件夹异常: $e，请检查存储权限')),
+        );
+      }
     }
   }
 
@@ -104,6 +134,11 @@ class _SyncScreenState extends State<SyncScreen> {
 
   /// 开始对比并在完成时自动收起配置面板
   Future<void> _handleStartComparison() async {
+    // 主动检查并申请存储权限
+    final hasPerm = await PermissionService.instance.requestStoragePermission();
+    if (!mounted) return;
+    setState(() => _hasStoragePermission = hasPerm);
+
     final sync = context.read<SyncProvider>();
     await sync.startComparison();
     if (mounted && sync.syncItems.isNotEmpty) {
@@ -115,6 +150,11 @@ class _SyncScreenState extends State<SyncScreen> {
 
   /// 确认并执行同步
   Future<void> _confirmAndExecuteSync() async {
+    // 确保具备存储写权限
+    final hasPerm = await PermissionService.instance.requestStoragePermission();
+    if (!mounted) return;
+    setState(() => _hasStoragePermission = hasPerm);
+
     final sync = context.read<SyncProvider>();
     final selectedItems = sync.syncItems.where((i) => i.isSelected).toList();
     if (selectedItems.isEmpty) return;
@@ -171,6 +211,7 @@ class _SyncScreenState extends State<SyncScreen> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final sync = context.watch<SyncProvider>();
+    final isNarrow = MediaQuery.of(context).size.width < 450;
 
     final filteredItems = _filterType == null
         ? sync.syncItems
@@ -191,43 +232,99 @@ class _SyncScreenState extends State<SyncScreen> {
       ),
       body: Stack(
         children: [
-          // 采用统一 CustomScrollView，滑动列表时上方配置卡片自然滚动折叠，大幅增大可视区域
           CustomScrollView(
             slivers: [
+              // 0. 移动端存储权限主动提示横幅（若尚未授予）
+              if (!_hasStoragePermission && Platform.isAndroid)
+                SliverToBoxAdapter(
+                  child: Container(
+                    margin: const EdgeInsets.fromLTRB(12, 6, 12, 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withAlpha(30),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.amber.withAlpha(120)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.sd_card_alert_outlined, color: Colors.amber, size: 24),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Text(
+                            '需要外部存储权限以同步读取和写入外部存储卡、U 盘与音乐文件夹',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton.tonal(
+                          onPressed: () async {
+                            final granted = await PermissionService.instance.requestStoragePermission();
+                            setState(() => _hasStoragePermission = granted);
+                            if (!granted) {
+                              await PermissionService.instance.openSettings();
+                            }
+                          },
+                          child: const Text('去授权'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
               // 1. 顶部配置卡片（支持点击折叠与自然滚动收起）
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                  padding: const EdgeInsets.fromLTRB(12, 6, 12, 4),
                   child: Card(
                     child: Padding(
-                      padding: const EdgeInsets.all(14.0),
-                      child: _buildConfigCardContent(sync, theme, colorScheme),
+                      padding: const EdgeInsets.all(12.0),
+                      child: _buildConfigCardContent(sync, theme, colorScheme, isNarrow),
                     ),
                   ),
                 ),
               ),
 
-              // 2. 比对结果统计徽章与全选操作栏
+              // 2. 比对结果统计徽章与全选操作栏（自适应小屏字号与文案）
               if (sync.syncItems.isNotEmpty) ...[
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     child: Row(
                       children: [
-                        _buildStatBadge('待下载 (全缺)', sync.missingCount, Colors.blue, SyncDifferenceType.missingInLocal),
+                        _buildStatBadge(
+                          isNarrow ? '待下载' : '待下载 (全缺)',
+                          sync.missingCount,
+                          Colors.blue,
+                          SyncDifferenceType.missingInLocal,
+                        ),
                         const SizedBox(width: 6),
-                        _buildStatBadge('本地拷贝 (免下载)', sync.copyCount, Colors.teal, SyncDifferenceType.copyFromLocal),
+                        _buildStatBadge(
+                          isNarrow ? '本地拷贝' : '本地拷贝 (免下载)',
+                          sync.copyCount,
+                          Colors.teal,
+                          SyncDifferenceType.copyFromLocal,
+                        ),
                         const SizedBox(width: 6),
-                        _buildStatBadge('多余 (待清理)', sync.extraCount, Colors.red, SyncDifferenceType.extraInLocal),
+                        _buildStatBadge(
+                          isNarrow ? '多余清理' : '多余 (待清理)',
+                          sync.extraCount,
+                          Colors.red,
+                          SyncDifferenceType.extraInLocal,
+                        ),
                         const SizedBox(width: 6),
-                        _buildStatBadge('已同步', sync.matchedCount, Colors.green, SyncDifferenceType.matched),
+                        _buildStatBadge(
+                          '已同步',
+                          sync.matchedCount,
+                          Colors.green,
+                          SyncDifferenceType.matched,
+                        ),
                       ],
                     ),
                   ),
                 ),
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
                     child: Row(
                       children: [
                         Text('共比对出 ${filteredItems.length} 项差异', style: theme.textTheme.bodySmall),
@@ -272,12 +369,12 @@ class _SyncScreenState extends State<SyncScreen> {
                 )
               else
                 SliverPadding(
-                  padding: const EdgeInsets.only(bottom: 96, left: 6, right: 6),
+                  padding: const EdgeInsets.only(bottom: 96, left: 4, right: 4),
                   sliver: SliverList(
                     delegate: SliverChildBuilderDelegate(
                       (context, index) {
                         final item = filteredItems[index];
-                        return _buildSyncTile(item, sync);
+                        return _buildSyncTile(item, sync, isNarrow);
                       },
                       childCount: filteredItems.length,
                     ),
@@ -286,14 +383,14 @@ class _SyncScreenState extends State<SyncScreen> {
             ],
           ),
 
-          // 底部执行同步浮动栏
+          // 底部执行同步浮动栏（自适应防溢出）
           if (sync.syncItems.isNotEmpty)
             Positioned(
               left: 0,
               right: 0,
               bottom: 0,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 decoration: BoxDecoration(
                   color: theme.cardColor,
                   boxShadow: [
@@ -302,23 +399,30 @@ class _SyncScreenState extends State<SyncScreen> {
                 ),
                 child: Row(
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          '已选中 ${sync.selectedCount} 项操作',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        if (sync.isSyncing)
-                          Text(sync.syncProgressText, style: TextStyle(fontSize: 12, color: theme.colorScheme.primary)),
-                      ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '已选中 ${sync.selectedCount} 项操作',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                          if (sync.isSyncing)
+                            Text(
+                              sync.syncProgressText,
+                              style: TextStyle(fontSize: 11, color: theme.colorScheme.primary),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                        ],
+                      ),
                     ),
-                    const Spacer(),
+                    const SizedBox(width: 8),
                     FilledButton.icon(
                       icon: sync.isSyncing
                           ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.sync),
+                          : const Icon(Icons.sync, size: 18),
                       label: const Text('开始同步'),
                       onPressed: (sync.selectedCount > 0 && !sync.isSyncing) ? _confirmAndExecuteSync : null,
                     ),
@@ -332,7 +436,7 @@ class _SyncScreenState extends State<SyncScreen> {
   }
 
   /// 构建配置卡片内容（支持展开完整版与折叠精简条）
-  Widget _buildConfigCardContent(SyncProvider sync, ThemeData theme, ColorScheme colorScheme) {
+  Widget _buildConfigCardContent(SyncProvider sync, ThemeData theme, ColorScheme colorScheme, bool isNarrow) {
     // 比对完成后折叠状态：展示极简条，点击可随时展开
     if (sync.syncItems.isNotEmpty && !_isConfigExpanded) {
       return InkWell(
@@ -340,7 +444,7 @@ class _SyncScreenState extends State<SyncScreen> {
         borderRadius: BorderRadius.circular(8),
         child: Row(
           children: [
-            const Icon(Icons.tune_rounded, size: 20, color: Colors.blueAccent),
+            const Icon(Icons.tune_rounded, size: 18, color: Colors.blueAccent),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -352,7 +456,7 @@ class _SyncScreenState extends State<SyncScreen> {
             ),
             TextButton.icon(
               icon: const Icon(Icons.expand_more, size: 16),
-              label: const Text('展开配置'),
+              label: Text(isNarrow ? '展开' : '展开配置'),
               onPressed: () => setState(() => _isConfigExpanded = true),
             ),
           ],
@@ -367,54 +471,59 @@ class _SyncScreenState extends State<SyncScreen> {
         // 1. 在线歌单选择行
         Row(
           children: [
-            const Icon(Icons.queue_music, size: 22, color: Colors.blueAccent),
+            const Icon(Icons.queue_music, size: 20, color: Colors.blueAccent),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 sync.selectedPlaylist != null
-                    ? '已选歌单: ${sync.selectedPlaylist!.name}'
-                    : '请选择一个在线歌单参与比对',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    ? '歌单: ${sync.selectedPlaylist!.name}'
+                    : '请选择在线歌单',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.arrow_drop_down, size: 18),
-              label: Text(sync.selectedPlaylist != null ? '更改' : '选择歌单'),
+            OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              ),
               onPressed: _pickPlaylist,
+              child: Text(sync.selectedPlaylist != null ? '更改' : '选择歌单'),
             ),
             if (sync.syncItems.isNotEmpty) ...[
-              const SizedBox(width: 6),
+              const SizedBox(width: 4),
               IconButton(
+                visualDensity: VisualDensity.compact,
                 tooltip: '收起配置卡片',
-                icon: const Icon(Icons.expand_less),
+                icon: const Icon(Icons.expand_less, size: 20),
                 onPressed: () => setState(() => _isConfigExpanded = false),
               ),
             ],
           ],
         ),
-        const Divider(height: 20),
+        const Divider(height: 16),
 
         // 2. 本地文件夹多选区
         Row(
           children: [
-            const Icon(Icons.folder_copy_outlined, size: 22, color: Colors.amber),
+            const Icon(Icons.folder_copy_outlined, size: 20, color: Colors.amber),
             const SizedBox(width: 8),
-            const Text('本地比对文件夹 (可添加多个):', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+            const Text('本地文件夹 (可多个):', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12.5)),
             const Spacer(),
             TextButton.icon(
+              style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
               icon: const Icon(Icons.add, size: 16),
-              label: const Text('添加文件夹'),
+              label: const Text('添加'),
               onPressed: _pickFolder,
             ),
           ],
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         if (sync.selectedFolders.isEmpty)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 4),
-            child: Text('尚未添加任何本地文件夹，请点击上方“添加文件夹”', style: TextStyle(color: Colors.grey, fontSize: 12)),
+            child: Text('尚未添加任何本地文件夹，请点击“添加”选择文件夹', style: TextStyle(color: Colors.grey, fontSize: 12)),
           )
         else
           Wrap(
@@ -422,19 +531,20 @@ class _SyncScreenState extends State<SyncScreen> {
             runSpacing: 6,
             children: sync.selectedFolders.map((path) {
               return Chip(
-                avatar: const Icon(Icons.folder, size: 16),
-                label: Text(path, style: const TextStyle(fontSize: 12)),
+                avatar: const Icon(Icons.folder, size: 14),
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                label: Text(path, style: const TextStyle(fontSize: 11)),
                 onDeleted: () => sync.removeFolder(path),
               );
             }).toList(),
           ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
 
         // 3. 开始比对大按钮
         FilledButton.icon(
           icon: sync.isComparing
-              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-              : const Icon(Icons.search),
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              : const Icon(Icons.search, size: 18),
           label: Text(sync.isComparing ? '正在比对歌曲文件...' : '开始对比歌曲差异'),
           onPressed: (sync.selectedPlaylist != null && sync.selectedFolders.isNotEmpty && !sync.isComparing)
               ? _handleStartComparison
@@ -456,17 +566,27 @@ class _SyncScreenState extends State<SyncScreen> {
         },
         borderRadius: BorderRadius.circular(10),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
           decoration: BoxDecoration(
             color: isSelected ? color.withAlpha(40) : color.withAlpha(20),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(color: isSelected ? color : Colors.transparent, width: 1.5),
           ),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Text(count.toString(), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 15)),
+              Text(
+                count.toString(),
+                style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 14),
+              ),
               const SizedBox(height: 2),
-              Text(label, style: TextStyle(color: color, fontSize: 9.5), maxLines: 1, overflow: TextOverflow.ellipsis),
+              Text(
+                label,
+                style: TextStyle(color: color, fontSize: 9.5),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+              ),
             ],
           ),
         ),
@@ -474,7 +594,7 @@ class _SyncScreenState extends State<SyncScreen> {
     );
   }
 
-  Widget _buildSyncTile(SyncItem item, SyncProvider sync) {
+  Widget _buildSyncTile(SyncItem item, SyncProvider sync, bool isNarrow) {
     Color typeColor;
     IconData typeIcon;
     switch (item.type) {
@@ -498,20 +618,22 @@ class _SyncScreenState extends State<SyncScreen> {
 
     return CheckboxListTile(
       value: item.isSelected,
+      dense: isNarrow,
+      contentPadding: EdgeInsets.symmetric(horizontal: isNarrow ? 8 : 12, vertical: 0),
       onChanged: item.type == SyncDifferenceType.matched ? null : (_) => sync.toggleItemSelection(item),
-      secondary: Icon(typeIcon, color: typeColor),
+      secondary: Icon(typeIcon, color: typeColor, size: isNarrow ? 20 : 24),
       title: Text(
         item.displayTitle,
-        style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+        style: TextStyle(fontWeight: FontWeight.w500, fontSize: isNarrow ? 13 : 14),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(item.displaySubtitle, style: const TextStyle(fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
+          Text(item.displaySubtitle, style: TextStyle(fontSize: isNarrow ? 10.5 : 11.5), maxLines: 1, overflow: TextOverflow.ellipsis),
           if (item.executionMessage != null)
-            Text(item.executionMessage!, style: TextStyle(fontSize: 11, color: typeColor)),
+            Text(item.executionMessage!, style: TextStyle(fontSize: isNarrow ? 10 : 10.5, color: typeColor)),
         ],
       ),
     );

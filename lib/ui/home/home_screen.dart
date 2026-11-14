@@ -14,7 +14,7 @@ import 'podcast_tab.dart';
 import 'search_tab.dart';
 
 /// 应用程序主框架视图
-/// 包含响应式导航栏、全局头部、试听控制条与功能模块路由
+/// 包含响应式导航栏、全局头部、试听控制条与功能模块路由，自适应移动端与桌面端
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -38,26 +38,31 @@ class _HomeScreenState extends State<HomeScreen> {
     final colorScheme = theme.colorScheme;
     final auth = context.watch<AuthProvider>();
     final download = context.watch<DownloadProvider>();
-    final isDesktop = MediaQuery.of(context).size.width >= 720;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isDesktop = screenWidth >= 720;
+    final isNarrow = screenWidth < 460;
 
     return Scaffold(
       appBar: AppBar(
+        titleSpacing: isNarrow ? 12 : 16,
         title: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: Image.asset(
                 'assets/icon.png',
-                width: 32,
-                height: 32,
+                width: 30,
+                height: 30,
                 errorBuilder: (context, error, stackTrace) => const Icon(Icons.music_note, color: Colors.red),
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             Text(
               'HyDownloader',
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.bold,
+                fontSize: isNarrow ? 16 : 17,
                 letterSpacing: 0.5,
               ),
             ),
@@ -70,6 +75,7 @@ class _HomeScreenState extends State<HomeScreen> {
             label: Text(download.activeCount.toString()),
             child: IconButton(
               tooltip: '下载管理',
+              visualDensity: isNarrow ? VisualDensity.compact : null,
               icon: const Icon(Icons.download_rounded),
               onPressed: () {
                 Navigator.push(
@@ -79,44 +85,49 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             ),
           ),
-          const SizedBox(width: 4),
+          const SizedBox(width: 2),
 
           // 全局设置按钮
           IconButton(
             tooltip: '偏好设置',
+            visualDensity: isNarrow ? VisualDensity.compact : null,
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => SettingsDialog.show(context),
           ),
-          const SizedBox(width: 4),
+          const SizedBox(width: 2),
 
-          // 用户身份状态与登录入口
+          // 用户身份状态与登录入口（移动小屏自适应隐藏冗余昵称文本，仅展示头像）
           if (auth.isLoggedIn && auth.currentUser != null)
             PopupMenuButton<String>(
               tooltip: '用户中心',
+              padding: EdgeInsets.zero,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
+                padding: EdgeInsets.symmetric(horizontal: isNarrow ? 6 : 8),
                 child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     CircleAvatar(
-                      radius: 16,
+                      radius: isNarrow ? 14 : 16,
                       backgroundColor: colorScheme.primary.withAlpha(40),
                       backgroundImage: auth.currentUser!.avatarUrl.isNotEmpty
                           ? NetworkImage(auth.currentUser!.avatarUrl, headers: AppNetworkImage.neteaseHeaders)
                           : null,
                       child: auth.currentUser!.avatarUrl.isEmpty
-                          ? Icon(Icons.person, size: 18, color: colorScheme.primary)
+                          ? Icon(Icons.person, size: isNarrow ? 16 : 18, color: colorScheme.primary)
                           : null,
                     ),
-                    const SizedBox(width: 8),
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 100),
-                      child: Text(
-                        auth.currentUser!.nickname,
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                    if (!isNarrow) ...[
+                      const SizedBox(width: 8),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 80),
+                        child: Text(
+                          auth.currentUser!.nickname,
+                          style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),
@@ -145,12 +156,18 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             )
           else
-            TextButton.icon(
-              icon: const Icon(Icons.login_rounded, size: 18),
-              label: const Text('登录'),
-              onPressed: () => LoginDialog.show(context),
-            ),
-          const SizedBox(width: 8),
+            isNarrow
+                ? IconButton(
+                    tooltip: '登录',
+                    icon: const Icon(Icons.login_rounded),
+                    onPressed: () => LoginDialog.show(context),
+                  )
+                : TextButton.icon(
+                    icon: const Icon(Icons.login_rounded, size: 18),
+                    label: const Text('登录'),
+                    onPressed: () => LoginDialog.show(context),
+                  ),
+          SizedBox(width: isNarrow ? 6 : 8),
         ],
       ),
       body: Row(
@@ -241,4 +258,3 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
-

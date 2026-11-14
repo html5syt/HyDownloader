@@ -13,7 +13,7 @@ import '../widgets/app_network_image.dart';
 import '../sync/sync_screen.dart';
 
 /// 歌单详情页面
-/// 展示歌单全部歌曲，提供单曲试听、单曲下载、批量下载与一键同步入口
+/// 展示歌单全部歌曲，提供单曲试听、单曲下载、批量下载与一键同步入口，自适应移动与桌面布局
 class PlaylistDetailScreen extends StatefulWidget {
   final Playlist playlist;
 
@@ -122,6 +122,8 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final isNarrow = MediaQuery.of(context).size.width < 420;
+
     final coverUrl = _currentPlaylist.coverImgUrl.isNotEmpty
         ? _currentPlaylist.coverImgUrl
         : widget.playlist.coverImgUrl;
@@ -131,14 +133,17 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
         children: [
           CustomScrollView(
             slivers: [
-              // 顶部歌单信息 AppBar (无多余重复标题重叠)
+              // 顶部歌单信息 AppBar (自适应移动端与桌面端)
               SliverAppBar(
-                expandedHeight: 200,
+                expandedHeight: isNarrow ? 180 : 200,
                 pinned: true,
                 elevation: 0,
                 title: Text(
                   _currentPlaylist.name,
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: isNarrow ? 15 : 17,
+                  ),
                 ),
                 flexibleSpace: FlexibleSpaceBar(
                   collapseMode: CollapseMode.pin,
@@ -165,28 +170,28 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                       ),
                       // 前景歌单信息区
                       Positioned(
-                        left: 20,
-                        bottom: 24,
-                        right: 20,
+                        left: isNarrow ? 14 : 20,
+                        bottom: isNarrow ? 18 : 24,
+                        right: isNarrow ? 14 : 20,
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             AppNetworkImage(
                               url: coverUrl,
-                              width: 96,
-                              height: 96,
+                              width: isNarrow ? 80 : 96,
+                              height: isNarrow ? 80 : 96,
                               borderRadius: BorderRadius.circular(12),
                               fallback: Container(
-                                width: 96,
-                                height: 96,
+                                width: isNarrow ? 80 : 96,
+                                height: isNarrow ? 80 : 96,
                                 decoration: BoxDecoration(
                                   color: colorScheme.surfaceContainerHighest,
                                   borderRadius: BorderRadius.circular(12),
                                 ),
-                                child: const Icon(Icons.queue_music, size: 40),
+                                child: const Icon(Icons.queue_music, size: 36),
                               ),
                             ),
-                            const SizedBox(width: 16),
+                            const SizedBox(width: 14),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -194,18 +199,18 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                                 children: [
                                   Text(
                                     _currentPlaylist.name,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       color: Colors.white,
-                                      fontSize: 18,
+                                      fontSize: isNarrow ? 16 : 18,
                                       fontWeight: FontWeight.bold,
                                     ),
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                   ),
-                                  const SizedBox(height: 6),
+                                  const SizedBox(height: 4),
                                   Text(
-                                    '${_currentPlaylist.creatorName.isEmpty ? "网易云用户" : _currentPlaylist.creatorName} · 共 ${_songs.isEmpty ? _currentPlaylist.trackCount : _songs.length} 首歌曲',
-                                    style: const TextStyle(color: Colors.white70, fontSize: 13),
+                                    '${_currentPlaylist.creatorName.isEmpty ? "网易云用户" : _currentPlaylist.creatorName} · 共 ${_songs.isEmpty ? _currentPlaylist.trackCount : _songs.length} 首歌',
+                                    style: TextStyle(color: Colors.white70, fontSize: isNarrow ? 11.5 : 13),
                                   ),
                                 ],
                               ),
@@ -232,14 +237,18 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                 ],
               ),
 
-              // 批量操作控制栏
+              // 批量操作控制栏（自适应防溢出）
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isNarrow ? 12 : 16,
+                    vertical: 10,
+                  ),
                   child: Row(
                     children: [
                       if (_isSelectionMode) ...[
                         Checkbox(
+                          visualDensity: VisualDensity.compact,
                           value: _selectedSongIds.length == _songs.length && _songs.isNotEmpty,
                           onChanged: (val) {
                             setState(() {
@@ -251,11 +260,18 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                             });
                           },
                         ),
-                        Text('已选择 ${_selectedSongIds.length} 首'),
+                        Text(
+                          isNarrow ? '${_selectedSongIds.length}首' : '已选择 ${_selectedSongIds.length} 首',
+                          style: TextStyle(fontSize: isNarrow ? 12.5 : 14),
+                        ),
                         const Spacer(),
                         FilledButton.icon(
-                          icon: const Icon(Icons.download, size: 18),
-                          label: const Text('下载所选'),
+                          style: FilledButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.symmetric(horizontal: isNarrow ? 8 : 14),
+                          ),
+                          icon: const Icon(Icons.download, size: 16),
+                          label: Text(isNarrow ? '下载' : '下载所选'),
                           onPressed: _selectedSongIds.isEmpty
                               ? null
                               : () {
@@ -263,8 +279,9 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                                   _showQualityPickerAndDownload(targets);
                                 },
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 6),
                         TextButton(
+                          style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
                           child: const Text('取消'),
                           onPressed: () {
                             setState(() {
@@ -275,14 +292,22 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                         ),
                       ] else ...[
                         FilledButton.tonalIcon(
+                          style: FilledButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.symmetric(horizontal: isNarrow ? 10 : 16),
+                          ),
                           icon: const Icon(Icons.download_rounded, size: 18),
-                          label: const Text('全部下载'),
+                          label: Text(isNarrow ? '全部' : '全部下载'),
                           onPressed: _songs.isEmpty ? null : () => _showQualityPickerAndDownload(_songs),
                         ),
                         const SizedBox(width: 8),
                         OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.symmetric(horizontal: isNarrow ? 10 : 16),
+                          ),
                           icon: const Icon(Icons.checklist, size: 18),
-                          label: const Text('批量选择'),
+                          label: Text(isNarrow ? '多选' : '批量选择'),
                           onPressed: _songs.isEmpty
                               ? null
                               : () {
@@ -294,7 +319,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                         const Spacer(),
                         Text(
                           '共 ${_songs.length} 首歌',
-                          style: theme.textTheme.bodySmall,
+                          style: theme.textTheme.bodySmall?.copyWith(fontSize: isNarrow ? 11 : 12),
                         ),
                       ],
                     ],
@@ -334,7 +359,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                         return SongTile(
                           song: song,
                           index: index + 1,
-                          playlistContext: _songs, // 传入当前歌单上下文，支持顺畅上一首/下一首切歌
+                          playlistContext: _songs,
                           showCheckbox: _isSelectionMode,
                           isSelected: _selectedSongIds.contains(song.id),
                           onSelectChanged: (val) {
