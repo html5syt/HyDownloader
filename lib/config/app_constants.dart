@@ -5,7 +5,7 @@ class AppConstants {
   static const String appName = 'HyDownloader';
 
   /// 应用版本号
-  static const String appVersion = '1.0.0';
+  static const String appVersion = '1.3.0';
 
   /// 默认音乐下载目录名
   static const String defaultDownloadFolderName = 'HyDownloader';
