@@ -21,6 +21,7 @@ permissions:
 env:
   FLUTTER_VERSION: "3.44.1"
   APP_NAME: HyDownloader
+  PUB_HOSTED_URL: https://pub.dev
 
 jobs:
   test_and_analyze:
@@ -36,7 +37,7 @@ jobs:
           cache: true
 
       - name: Install dependencies
-        run: flutter pub get
+        run: flutter pub get --enforce-lockfile
 
       - name: Static code analysis
         run: flutter analyze
@@ -66,7 +67,7 @@ jobs:
 
       - name: Build Android APK
         run: |
-          flutter pub get
+          flutter pub get --enforce-lockfile
           flutter build apk --debug
           mkdir -p artifacts
           cp build/app/outputs/flutter-apk/app-debug.apk artifacts/${APP_NAME}-android-debug.apk
@@ -93,7 +94,7 @@ jobs:
         shell: powershell
         run: |
           flutter config --enable-windows-desktop
-          flutter pub get
+          flutter pub get --enforce-lockfile
           flutter build windows --debug
           New-Item -ItemType Directory -Force artifacts | Out-Null
           Compress-Archive -Path build\windows\x64\runner\Debug\* -DestinationPath artifacts\${env:APP_NAME}-windows-debug.zip -Force
@@ -124,7 +125,7 @@ jobs:
       - name: Build Linux
         run: |
           flutter config --enable-linux-desktop
-          flutter pub get
+          flutter pub get --enforce-lockfile
           flutter build linux --debug
           mkdir -p artifacts
           tar -czf artifacts/${APP_NAME}-linux-debug.tar.gz -C build/linux/x64/debug/bundle .
@@ -151,7 +152,7 @@ jobs:
         run: |
           VERSION="${GITHUB_SHA:0:8}"
           flutter config --enable-macos-desktop
-          flutter pub get
+          flutter pub get --enforce-lockfile
           flutter build macos --debug --dart-define=APP_VERSION="$VERSION"
           flutter build ios --debug --no-codesign --dart-define=APP_VERSION="$VERSION"
           mkdir -p artifacts

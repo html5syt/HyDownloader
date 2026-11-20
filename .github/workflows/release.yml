@@ -19,6 +19,7 @@ permissions:
 env:
   FLUTTER_VERSION: "3.44.1"
   APP_NAME: HyDownloader
+  PUB_HOSTED_URL: https://pub.dev
 
 jobs:
   release_metadata:
@@ -238,7 +239,7 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           VERSION="${{ needs.release_metadata.outputs.app_version }}"
-          flutter pub get
+          flutter pub get --enforce-lockfile
           flutter build apk --release --dart-define=APP_VERSION="$VERSION"
           mkdir -p artifacts
           cp build/app/outputs/flutter-apk/app-release.apk artifacts/${APP_NAME}-android-release.apk
@@ -280,7 +281,7 @@ jobs:
         run: |
           VERSION='${{ needs.release_metadata.outputs.app_version }}'
           flutter config --enable-linux-desktop
-          flutter pub get
+          flutter pub get --enforce-lockfile
           flutter build linux --release --dart-define=APP_VERSION="$VERSION"
           mkdir -p artifacts
           tar -czf artifacts/${APP_NAME}-linux-x64.tar.gz -C build/linux/x64/release/bundle .
@@ -310,7 +311,7 @@ jobs:
           $version = '${{ needs.release_metadata.outputs.app_version }}'
           $buildName = $version.TrimStart('v')
           flutter config --enable-windows-desktop
-          flutter pub get
+          flutter pub get --enforce-lockfile
           flutter build windows --release --build-name=$buildName --dart-define=APP_VERSION=$version
           New-Item -ItemType Directory -Force artifacts | Out-Null
           Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath artifacts\${env:APP_NAME}-windows-x64.zip -Force
@@ -339,7 +340,7 @@ jobs:
           VERSION='${{ needs.release_metadata.outputs.app_version }}'
           BUILD_NAME="${VERSION#v}"
           flutter config --enable-macos-desktop
-          flutter pub get
+          flutter pub get --enforce-lockfile
           flutter build macos --release --build-name="$BUILD_NAME" --dart-define=APP_VERSION="$VERSION"
           mkdir -p artifacts
           MACOS_APP="$(find build/macos/Build/Products -name '*.app' -print -quit)"
@@ -386,6 +387,22 @@ jobs:
         with:
           name: release-assets
           path: dist/*
+
+      - name: Align release tag with the built commit
+        if: needs.release_metadata.outputs.release_source == 'commit'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release_metadata.outputs.tag_name }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" > /dev/null 2>&1; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" \
+              -f sha="$RELEASE_SHA" -F force=true > /dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/$RELEASE_TAG" -f sha="$RELEASE_SHA" > /dev/null
+          fi
 
       - name: Attach assets to GitHub Release
         uses: softprops/action-gh-release@v2

@@ -37,7 +37,13 @@ class FileAccess {
       final name = selected['name'] ?? '音乐文件夹';
       return 'saf:${base64Url.encode(utf8.encode(uri))}/${Uri.encodeComponent(name)}';
     }
-    return FilePicker.getDirectoryPath(dialogTitle: title);
+    final selected = await FilePicker.pickDirectory(dialogTitle: title);
+    if (selected == null) return null;
+    // Android 仍使用上面的持久化 SAF 授权桥接；其他平台返回 file: URI。
+    if (selected.scheme != 'file') {
+      throw const FileSystemException('无法访问此文件夹，请选择本地文件夹');
+    }
+    return selected.toFilePath();
   }
 
   static Future<void> ensureDirectory(String path) async {
