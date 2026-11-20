@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import 'config/app_constants.dart';
 import 'config/app_theme.dart';
 import 'services/storage/storage_service.dart';
-import 'services/storage/permission_service.dart';
 import 'providers/auth_provider.dart';
 import 'providers/home_provider.dart';
 import 'providers/player_provider.dart';
@@ -18,9 +17,6 @@ void main() async {
   // 初始化本地持久化配置
   await StorageService.instance.init();
 
-  // 移动端主动检查并申请外部存储与媒体读写权限，确保歌单同步与文件下载正常
-  await PermissionService.instance.requestStoragePermission();
-
   runApp(const HyDownloaderApp());
 }
 
@@ -32,7 +28,9 @@ class HyDownloaderApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => AuthProvider()..restoreSavedLogin()),
+        ChangeNotifierProvider(
+          create: (_) => AuthProvider()..restoreSavedLogin(),
+        ),
         ChangeNotifierProvider(create: (_) => HomeProvider()),
         ChangeNotifierProvider(create: (_) => PlayerProvider()),
         ChangeNotifierProvider(create: (_) => DownloadProvider()),

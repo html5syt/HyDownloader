@@ -1,7 +1,28 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// 本地 key.properties 与 CI 环境变量共享同一固定签名配置。
+val signingProperties = Properties().apply {
+    val file = rootProject.file("key.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+fun signingValue(property: String, environment: String): String? =
+    System.getenv(environment)?.takeIf { it.isNotBlank() }
+        ?: signingProperties.getProperty(property)?.takeIf { it.isNotBlank() }
+val signingStore = signingValue("storeFile", "ANDROID_KEYSTORE_PATH")
+val signingStorePassword = signingValue("storePassword", "ANDROID_KEYSTORE_PASSWORD")
+val signingAlias = signingValue("keyAlias", "ANDROID_KEY_ALIAS")
+val signingKeyPassword = signingValue("keyPassword", "ANDROID_KEY_PASSWORD")
+val hasReleaseSigning = listOf(signingStore, signingStorePassword, signingAlias, signingKeyPassword)
+    .all { it != null }
+if (gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }) {
+    check(hasReleaseSigning) { "Release signing is required: configure Android signing secrets or android/key.properties." }
+    check(rootProject.file(signingStore!!).isFile) { "Release keystore does not exist." }
 }
 
 android {
@@ -25,11 +46,20 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = rootProject.file(signingStore!!)
+                storePassword = signingStorePassword
+                keyAlias = signingAlias
+                keyPassword = signingKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
         }
     }
 }
@@ -42,4 +72,8 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation("androidx.documentfile:documentfile:1.0.1")
 }

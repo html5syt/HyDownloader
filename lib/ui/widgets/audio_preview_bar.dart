@@ -31,16 +31,24 @@ class AudioPreviewBar extends StatelessWidget {
         Navigator.push(
           context,
           PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) => const FullscreenPlayerScreen(),
-            transitionsBuilder: (context, animation, secondaryAnimation, child) {
-              return SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0, 1),
-                  end: Offset.zero,
-                ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
-                child: child,
-              );
-            },
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                const FullscreenPlayerScreen(),
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) {
+                  return SlideTransition(
+                    position:
+                        Tween<Offset>(
+                          begin: const Offset(0, 1),
+                          end: Offset.zero,
+                        ).animate(
+                          CurvedAnimation(
+                            parent: animation,
+                            curve: Curves.easeOutCubic,
+                          ),
+                        ),
+                    child: child,
+                  );
+                },
           ),
         );
       },
@@ -72,8 +80,12 @@ class AudioPreviewBar extends StatelessWidget {
               child: SliderTheme(
                 data: SliderTheme.of(context).copyWith(
                   trackHeight: 2.5,
-                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
-                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
+                  thumbShape: const RoundSliderThumbShape(
+                    enabledThumbRadius: 5,
+                  ),
+                  overlayShape: const RoundSliderOverlayShape(
+                    overlayRadius: 10,
+                  ),
                   activeTrackColor: colorScheme.primary,
                   inactiveTrackColor: colorScheme.primary.withAlpha(30),
                   thumbColor: colorScheme.primary,
@@ -102,7 +114,10 @@ class AudioPreviewBar extends StatelessWidget {
                     width: isNarrow ? 38 : 42,
                     height: isNarrow ? 38 : 42,
                     borderRadius: BorderRadius.circular(8),
-                    fallback: _buildFallbackCover(colorScheme, isNarrow ? 38 : 42),
+                    fallback: _buildFallbackCover(
+                      colorScheme,
+                      isNarrow ? 38 : 42,
+                    ),
                   ),
                   SizedBox(width: isNarrow ? 8 : 12),
 
@@ -126,10 +141,13 @@ class AudioPreviewBar extends StatelessWidget {
                           children: [
                             Flexible(
                               child: Text(
-                                song.artistString,
+                                player.errorMessage ?? song.artistString,
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   fontSize: 10.5,
-                                  color: theme.textTheme.bodySmall?.color?.withAlpha(160),
+                                  color: player.errorMessage != null
+                                      ? colorScheme.error
+                                      : theme.textTheme.bodySmall?.color
+                                            ?.withAlpha(160),
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -155,13 +173,20 @@ class AudioPreviewBar extends StatelessWidget {
                     tooltip: '上一首',
                     padding: EdgeInsets.zero,
                     visualDensity: VisualDensity.compact,
-                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
+                    ),
                     icon: Icon(
                       Icons.skip_previous_rounded,
                       size: isNarrow ? 22 : 24,
-                      color: player.canSwitch ? colorScheme.onSurface : colorScheme.onSurface.withAlpha(80),
+                      color: player.canSwitch
+                          ? colorScheme.onSurface
+                          : colorScheme.onSurface.withAlpha(80),
                     ),
-                    onPressed: player.canSwitch ? () => player.playPrevious() : null,
+                    onPressed: player.canSwitch
+                        ? () => player.playPrevious()
+                        : null,
                   ),
 
                   // 播放 / 暂停按钮
@@ -169,7 +194,10 @@ class AudioPreviewBar extends StatelessWidget {
                     tooltip: player.isPlaying ? '暂停' : '播放',
                     padding: EdgeInsets.zero,
                     visualDensity: VisualDensity.compact,
-                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                    constraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 36,
+                    ),
                     icon: player.isLoading
                         ? const SizedBox(
                             width: 18,
@@ -177,7 +205,9 @@ class AudioPreviewBar extends StatelessWidget {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : Icon(
-                            player.isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                            player.isPlaying
+                                ? Icons.pause_circle_filled
+                                : Icons.play_circle_filled,
                             color: colorScheme.primary,
                             size: isNarrow ? 30 : 34,
                           ),
@@ -189,13 +219,20 @@ class AudioPreviewBar extends StatelessWidget {
                     tooltip: '下一首',
                     padding: EdgeInsets.zero,
                     visualDensity: VisualDensity.compact,
-                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
+                    ),
                     icon: Icon(
                       Icons.skip_next_rounded,
                       size: isNarrow ? 22 : 24,
-                      color: player.canSwitch ? colorScheme.onSurface : colorScheme.onSurface.withAlpha(80),
+                      color: player.canSwitch
+                          ? colorScheme.onSurface
+                          : colorScheme.onSurface.withAlpha(80),
                     ),
-                    onPressed: player.canSwitch ? () => player.playNext() : null,
+                    onPressed: player.canSwitch
+                        ? () => player.playNext()
+                        : null,
                   ),
 
                   // 关闭试听条
@@ -203,7 +240,10 @@ class AudioPreviewBar extends StatelessWidget {
                     tooltip: '关闭试听',
                     padding: EdgeInsets.zero,
                     visualDensity: VisualDensity.compact,
-                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                    constraints: const BoxConstraints(
+                      minWidth: 28,
+                      minHeight: 28,
+                    ),
                     icon: const Icon(Icons.close, size: 18),
                     onPressed: () => player.stop(),
                   ),
@@ -221,7 +261,11 @@ class AudioPreviewBar extends StatelessWidget {
       width: size,
       height: size,
       color: colorScheme.primary.withAlpha(30),
-      child: Icon(Icons.music_note, color: colorScheme.primary, size: size * 0.5),
+      child: Icon(
+        Icons.music_note,
+        color: colorScheme.primary,
+        size: size * 0.5,
+      ),
     );
   }
 

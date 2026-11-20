@@ -2,11 +2,11 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../config/app_theme.dart';
-import '../../models/song.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/download_provider.dart';
 import '../../services/netease/lyric_service.dart';
 import '../widgets/app_network_image.dart';
+import '../widgets/player_cover.dart';
 
 /// 类似 HyPlayer 沉浸式全屏试听与歌词预览视图
 /// 包含全景毛玻璃背景、左侧发光黑胶/圆形封面、右侧实时滚动歌词与底部沉浸式播放控制条
@@ -66,7 +66,9 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
         });
       } else {
         setState(() {
-          _lyrics = [LyricLine(timeMs: 0, timeTag: '00:00.00', text: '纯音乐，请欣赏')];
+          _lyrics = [
+            LyricLine(timeMs: 0, timeTag: '00:00.00', text: '纯音乐，请欣赏'),
+          ];
           _isLoadingLyrics = false;
         });
       }
@@ -101,11 +103,14 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
             .trim();
 
         if (lineText.isNotEmpty) {
-          lines.add(LyricLine(
-            timeMs: timeMs,
-            timeTag: '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}',
-            text: lineText,
-          ));
+          lines.add(
+            LyricLine(
+              timeMs: timeMs,
+              timeTag:
+                  '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}',
+              text: lineText,
+            ),
+          );
         }
       }
     }
@@ -132,7 +137,10 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
       if (_lyricScrollController.hasClients) {
         final targetOffset = activeIdx * _lyricItemHeight;
         _lyricScrollController.animateTo(
-          targetOffset.clamp(0.0, _lyricScrollController.position.maxScrollExtent),
+          targetOffset.clamp(
+            0.0,
+            _lyricScrollController.position.maxScrollExtent,
+          ),
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeOutCubic,
         );
@@ -172,10 +180,7 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
         children: [
           // 1. 全屏毛玻璃虚化背景
           if (song.albumCoverUrl.isNotEmpty)
-            AppNetworkImage(
-              url: song.albumCoverUrl,
-              fit: BoxFit.cover,
-            )
+            AppNetworkImage(url: song.albumCoverUrl, fit: BoxFit.cover)
           else
             Container(color: const Color(0xFF0D1B2A)),
 
@@ -202,18 +207,28 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
               children: [
                 // 顶部工具栏 (缩小返回)
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   child: Row(
                     children: [
                       IconButton(
                         tooltip: '收起全屏',
-                        icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 28),
+                        icon: const Icon(
+                          Icons.keyboard_arrow_down,
+                          color: Colors.white,
+                          size: 28,
+                        ),
                         onPressed: () => Navigator.pop(context),
                       ),
                       const Spacer(),
                       IconButton(
                         tooltip: '下载此曲',
-                        icon: const Icon(Icons.download_rounded, color: Colors.white70),
+                        icon: const Icon(
+                          Icons.download_rounded,
+                          color: Colors.white70,
+                        ),
                         onPressed: () async {
                           await download.downloadSong(song);
                           if (context.mounted) {
@@ -233,20 +248,17 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
                       ? Row(
                           children: [
                             // 左侧：封面与歌曲大标题 (类似 HyPlayer 经典设计)
-                            Expanded(
-                              flex: 5,
-                              child: _buildCoverAndTitle(song),
-                            ),
+                            Expanded(flex: 5, child: PlayerCover(song: song)),
                             // 右侧：实时歌词（中间垂直对齐）
-                            Expanded(
-                              flex: 5,
-                              child: _buildLyricsView(player),
-                            ),
+                            Expanded(flex: 5, child: _buildLyricsView(player)),
                           ],
                         )
                       : Column(
                           children: [
-                            Expanded(flex: 4, child: _buildCoverAndTitle(song, compact: true)),
+                            Expanded(
+                              flex: 4,
+                              child: PlayerCover(song: song, compact: true),
+                            ),
                             Expanded(flex: 5, child: _buildLyricsView(player)),
                           ],
                         ),
@@ -262,84 +274,12 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
     );
   }
 
-  /// 构建左侧圆形发光封面与曲目信息
-  Widget _buildCoverAndTitle(Song song, {bool compact = false}) {
-    final size = compact ? 160.0 : 260.0;
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // 圆形带发光光晕的封面 (完全还原 Image 1 视觉特点)
-            Container(
-              width: size,
-              height: size,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.cyanAccent.withAlpha(80),
-                    blurRadius: 36,
-                    spreadRadius: 4,
-                  ),
-                  BoxShadow(
-                    color: Colors.blue.withAlpha(120),
-                    blurRadius: 20,
-                  ),
-                ],
-                border: Border.all(color: Colors.white.withAlpha(180), width: 3),
-              ),
-              child: ClipOval(
-                child: song.albumCoverUrl.isNotEmpty
-                    ? AppNetworkImage(
-                        url: song.albumCoverUrl,
-                        fit: BoxFit.cover,
-                      )
-                    : Container(color: Colors.blueGrey),
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // 歌曲名
-            Text(
-              song.name,
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: compact ? 18 : 22,
-                letterSpacing: 0.5,
-                fontFamilyFallback: AppTheme.fontFallbacks,
-              ),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 8),
-
-            // 歌手名与专辑
-            Text(
-              '${song.artistString}  ${song.albumName.isEmpty ? "" : "· ${song.albumName}"}',
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 14,
-                fontFamilyFallback: AppTheme.fontFallbacks,
-              ),
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   /// 构建右侧歌词滚动区域 (通过动态内边距实现当前歌词行在视口正中垂直对齐)
   Widget _buildLyricsView(PlayerProvider player) {
     if (_isLoadingLyrics) {
-      return const Center(child: CircularProgressIndicator(color: Colors.white70));
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.white70),
+      );
     }
 
     if (_lyrics.isEmpty) {
@@ -360,7 +300,10 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
       builder: (context, constraints) {
         final viewportHeight = constraints.maxHeight;
         // 计算上下留白高度：使得第 i 行 offset = i * _lyricItemHeight 时，该行刚好位于视口正中垂直线
-        final verticalPadding = ((viewportHeight - _lyricItemHeight) / 2).clamp(20.0, 600.0);
+        final verticalPadding = ((viewportHeight - _lyricItemHeight) / 2).clamp(
+          20.0,
+          600.0,
+        );
 
         return ListView.builder(
           controller: _lyricScrollController,
@@ -406,7 +349,11 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
   }
 
   /// 构建底部拖拽进度条与播放控制按钮
-  Widget _buildBottomControls(PlayerProvider player, double sliderVal, double sliderMax) {
+  Widget _buildBottomControls(
+    PlayerProvider player,
+    double sliderVal,
+    double sliderMax,
+  ) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
       child: Column(
@@ -465,14 +412,22 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
             children: [
               IconButton(
                 tooltip: '上一首',
-                icon: const Icon(Icons.skip_previous_rounded, color: Colors.white, size: 36),
-                onPressed: player.canSwitch ? () => player.playPrevious() : null,
+                icon: const Icon(
+                  Icons.skip_previous_rounded,
+                  color: Colors.white,
+                  size: 36,
+                ),
+                onPressed: player.canSwitch
+                    ? () => player.playPrevious()
+                    : null,
               ),
               const SizedBox(width: 24),
               IconButton(
                 tooltip: player.isPlaying ? '暂停' : '播放',
                 icon: Icon(
-                  player.isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                  player.isPlaying
+                      ? Icons.pause_circle_filled
+                      : Icons.play_circle_filled,
                   color: Colors.white,
                   size: 56,
                 ),
@@ -481,7 +436,11 @@ class _FullscreenPlayerScreenState extends State<FullscreenPlayerScreen> {
               const SizedBox(width: 24),
               IconButton(
                 tooltip: '下一首',
-                icon: const Icon(Icons.skip_next_rounded, color: Colors.white, size: 36),
+                icon: const Icon(
+                  Icons.skip_next_rounded,
+                  color: Colors.white,
+                  size: 36,
+                ),
                 onPressed: player.canSwitch ? () => player.playNext() : null,
               ),
             ],

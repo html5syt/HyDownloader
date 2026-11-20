@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:file_picker/file_picker.dart';
+import '../../services/storage/file_access.dart';
 import '../../models/download_task.dart';
 import '../../providers/download_provider.dart';
 import '../../services/storage/storage_service.dart';
@@ -15,7 +15,8 @@ class DownloadScreen extends StatefulWidget {
   State<DownloadScreen> createState() => _DownloadScreenState();
 }
 
-class _DownloadScreenState extends State<DownloadScreen> with SingleTickerProviderStateMixin {
+class _DownloadScreenState extends State<DownloadScreen>
+    with SingleTickerProviderStateMixin {
   late final TabController _tabController;
   final StorageService _storage = StorageService.instance;
   String _currentDownloadDir = '';
@@ -43,14 +44,17 @@ class _DownloadScreenState extends State<DownloadScreen> with SingleTickerProvid
   }
 
   Future<void> _pickDownloadDir() async {
-    final selected = await FilePicker.getDirectoryPath(
-      dialogTitle: '选择音乐下载保存目录',
-    );
-    if (selected != null && selected.isNotEmpty) {
+    try {
+      final selected = await FileAccess.pickDirectory(title: '选择音乐下载保存目录');
+      if (selected == null || selected.isEmpty || !mounted) return;
       await _storage.saveDownloadDirectory(selected);
-      setState(() {
-        _currentDownloadDir = selected;
-      });
+      if (mounted) setState(() => _currentDownloadDir = selected);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('无法访问此文件夹，请重新选择并允许访问')));
+      }
     }
   }
 
@@ -60,8 +64,12 @@ class _DownloadScreenState extends State<DownloadScreen> with SingleTickerProvid
     final colorScheme = theme.colorScheme;
     final download = context.watch<DownloadProvider>();
 
-    final activeTasks = download.tasks.where((t) => t.status != DownloadStatus.completed).toList();
-    final completedTasks = download.tasks.where((t) => t.status == DownloadStatus.completed).toList();
+    final activeTasks = download.tasks
+        .where((t) => t.status != DownloadStatus.completed)
+        .toList();
+    final completedTasks = download.tasks
+        .where((t) => t.status == DownloadStatus.completed)
+        .toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -89,12 +97,39 @@ class _DownloadScreenState extends State<DownloadScreen> with SingleTickerProvid
           IconButton(
             tooltip: '清空已完成记录',
             icon: const Icon(Icons.cleaning_services_outlined),
-            onPressed: completedTasks.isEmpty ? null : () => download.clearCompleted(),
+            onPressed: completedTasks.isEmpty
+                ? null
+                : () => download.clearCompleted(),
           ),
         ],
       ),
       body: Column(
         children: [
+          if (download.vipBlockedBy != null)
+            Container(
+              width: double.infinity,
+              color: colorScheme.errorContainer,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(
+                    '“${download.vipBlockedBy!.song.name}”只有试听片段。\n'
+                    'VIP 下载已暂停，请检查会员或免费听权限。',
+                    style: TextStyle(color: colorScheme.onErrorContainer),
+                  ),
+                  FilledButton.tonal(
+                    onPressed: download.isRetryingVip
+                        ? null
+                        : download.retryVipSong,
+                    child: Text(download.isRetryingVip ? '正在重试…' : '重试这首歌'),
+                  ),
+                ],
+              ),
+            ),
+
           // 顶部下载存储路径提示条
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -105,7 +140,7 @@ class _DownloadScreenState extends State<DownloadScreen> with SingleTickerProvid
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '存储位置: $_currentDownloadDir',
+                    '存储位置: ${FileAccess.displayPath(_currentDownloadDir)}',
                     style: theme.textTheme.bodySmall,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -134,7 +169,10 @@ class _DownloadScreenState extends State<DownloadScreen> with SingleTickerProvid
     );
   }
 
-  Widget _buildTaskList(List<DownloadTask> tasks, {required bool isCompletedTab}) {
+  Widget _buildTaskList(
+    List<DownloadTask> tasks, {
+    required bool isCompletedTab,
+  }) {
     if (tasks.isEmpty) {
       return EmptyStateView(
         icon: isCompletedTab ? Icons.done_all : Icons.download_done,
@@ -148,7 +186,8 @@ class _DownloadScreenState extends State<DownloadScreen> with SingleTickerProvid
     return ListView.separated(
       padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: tasks.length,
-      separatorBuilder: (_, _) => const Divider(height: 1, indent: 16, endIndent: 16),
+      separatorBuilder: (_, _) =>
+          const Divider(height: 1, indent: 16, endIndent: 16),
       itemBuilder: (context, index) {
         final task = tasks[index];
         return Padding(
@@ -164,14 +203,20 @@ class _DownloadScreenState extends State<DownloadScreen> with SingleTickerProvid
                       children: [
                         Text(
                           task.song.name,
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 2),
                         Text(
                           '${task.song.artistString} · ${task.qualityLevel.toUpperCase()}',
-                          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
                         ),
                       ],
                     ),
@@ -187,15 +232,17 @@ class _DownloadScreenState extends State<DownloadScreen> with SingleTickerProvid
               ClipRRect(
                 borderRadius: BorderRadius.circular(4),
                 child: LinearProgressIndicator(
-                  value: task.status == DownloadStatus.completed ? 1.0 : task.progress,
+                  value: task.status == DownloadStatus.completed
+                      ? 1.0
+                      : task.progress,
                   minHeight: 4,
                   backgroundColor: Colors.grey.withAlpha(30),
                   valueColor: AlwaysStoppedAnimation(
                     task.status == DownloadStatus.failed
                         ? Colors.red
                         : task.status == DownloadStatus.paused
-                            ? Colors.orange
-                            : Theme.of(context).colorScheme.primary,
+                        ? Colors.orange
+                        : Theme.of(context).colorScheme.primary,
                   ),
                 ),
               ),
@@ -209,16 +256,26 @@ class _DownloadScreenState extends State<DownloadScreen> with SingleTickerProvid
                     task.errorMessage ??
                         (task.status == DownloadStatus.downloading
                             ? '${(task.progress * 100).toStringAsFixed(1)}%'
+                            : task.pausedForVip
+                            ? '等待会员权限'
+                            : task.isPreview
+                            ? '仅试听片段'
                             : task.status.label),
                     style: TextStyle(
                       fontSize: 11,
-                      color: task.errorMessage != null ? Colors.red : Colors.grey,
+                      color: task.errorMessage != null
+                          ? Colors.red
+                          : Colors.grey,
                     ),
                   ),
-                  if (task.status == DownloadStatus.downloading && task.speedBytesPerSec > 0)
+                  if (task.status == DownloadStatus.downloading &&
+                      task.speedBytesPerSec > 0)
                     Text(
                       task.formattedSpeed,
-                      style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.primary),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
                     )
                   else
                     Text(
@@ -261,8 +318,16 @@ class _DownloadScreenState extends State<DownloadScreen> with SingleTickerProvid
         border: Border.all(color: color.withAlpha(100), width: 0.8),
       ),
       child: Text(
-        task.status.label,
-        style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
+        task.pausedForVip
+            ? '等待会员权限'
+            : task.isPreview
+            ? '仅试听片段'
+            : task.status.label,
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }

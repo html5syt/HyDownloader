@@ -45,3 +45,8 @@ app.*.map.json
 /android/app/release
 
 devtools_options.yaml
+
+# Never commit Android signing credentials
+android/key.properties
+*.jks
+*.keystore

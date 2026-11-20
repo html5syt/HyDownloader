@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:file_picker/file_picker.dart';
+import '../../services/storage/file_access.dart';
 import '../../config/app_constants.dart';
 import '../../services/storage/storage_service.dart';
 
@@ -10,10 +10,7 @@ class SettingsDialog extends StatefulWidget {
 
   /// 静态快捷弹出方法
   static Future<void> show(BuildContext context) {
-    return showDialog(
-      context: context,
-      builder: (_) => const SettingsDialog(),
-    );
+    return showDialog(context: context, builder: (_) => const SettingsDialog());
   }
 
   @override
@@ -33,7 +30,8 @@ class _SettingsDialogState extends State<SettingsDialog> {
   late bool _writeMetadata;
 
   final TextEditingController _concurrentController = TextEditingController();
-  final TextEditingController _singleSongThreadsController = TextEditingController();
+  final TextEditingController _singleSongThreadsController =
+      TextEditingController();
 
   @override
   void initState() {
@@ -69,20 +67,29 @@ class _SettingsDialogState extends State<SettingsDialog> {
   }
 
   Future<void> _pickDir() async {
-    final selected = await FilePicker.getDirectoryPath(dialogTitle: '选择音乐下载保存位置');
-    if (selected != null && selected.isNotEmpty) {
+    try {
+      final selected = await FileAccess.pickDirectory(title: '选择音乐下载保存位置');
+      if (selected == null || selected.isEmpty || !mounted) return;
       await _storage.saveDownloadDirectory(selected);
-      setState(() {
-        _downloadDir = selected;
-      });
+      if (mounted) setState(() => _downloadDir = selected);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('无法访问此文件夹，请重新选择并允许访问')));
+      }
     }
   }
 
   Future<void> _saveAndClose() async {
-    final parsedConcurrent = int.tryParse(_concurrentController.text.trim()) ?? _maxConcurrentDownloads;
+    final parsedConcurrent =
+        int.tryParse(_concurrentController.text.trim()) ??
+        _maxConcurrentDownloads;
     final effectiveConcurrent = parsedConcurrent < 1 ? 1 : parsedConcurrent;
 
-    final parsedThreads = int.tryParse(_singleSongThreadsController.text.trim()) ?? _singleSongThreads;
+    final parsedThreads =
+        int.tryParse(_singleSongThreadsController.text.trim()) ??
+        _singleSongThreads;
     final effectiveThreads = parsedThreads < 1 ? 1 : parsedThreads;
 
     await _storage.saveAudioRate(_downloadQuality);
@@ -109,9 +116,15 @@ class _SettingsDialogState extends State<SettingsDialog> {
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      insetPadding: EdgeInsets.symmetric(horizontal: isNarrow ? 16 : 40, vertical: 24),
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: isNarrow ? 16 : 40,
+        vertical: 24,
+      ),
       child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: 520, maxHeight: isNarrow ? 620 : 680),
+        constraints: BoxConstraints(
+          maxWidth: 520,
+          maxHeight: isNarrow ? 620 : 680,
+        ),
         child: Padding(
           padding: EdgeInsets.all(isNarrow ? 16.0 : 20.0),
           child: Column(
@@ -146,12 +159,18 @@ class _SettingsDialogState extends State<SettingsDialog> {
                       initialValue: _downloadQuality,
                       decoration: const InputDecoration(
                         labelText: '默认下载品质',
-                        contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
                       ),
                       items: AudioQuality.availableQualities.map((q) {
                         return DropdownMenuItem(
                           value: q.level,
-                          child: Text('${q.label} (${q.level})', style: TextStyle(fontSize: isNarrow ? 13 : 14)),
+                          child: Text(
+                            '${q.label} (${q.level})',
+                            style: TextStyle(fontSize: isNarrow ? 13 : 14),
+                          ),
                         );
                       }).toList(),
                       onChanged: (val) {
@@ -166,14 +185,47 @@ class _SettingsDialogState extends State<SettingsDialog> {
                       initialValue: _previewQuality,
                       decoration: const InputDecoration(
                         labelText: '默认试听品质',
-                        contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
                       ),
                       items: [
-                        DropdownMenuItem(value: 'standard', child: Text('标准品质 (128Kbps - 极速秒开)', style: TextStyle(fontSize: isNarrow ? 12.5 : 14))),
-                        DropdownMenuItem(value: 'higher', child: Text('较高品质 (192Kbps)', style: TextStyle(fontSize: isNarrow ? 12.5 : 14))),
-                        DropdownMenuItem(value: 'exhigh', child: Text('极高品质 (320Kbps - 推荐平衡)', style: TextStyle(fontSize: isNarrow ? 12.5 : 14))),
-                        DropdownMenuItem(value: 'lossless', child: Text('无损品质 (FLAC)', style: TextStyle(fontSize: isNarrow ? 12.5 : 14))),
-                        DropdownMenuItem(value: 'hires', child: Text('Hi-Res 高解析度', style: TextStyle(fontSize: isNarrow ? 12.5 : 14))),
+                        DropdownMenuItem(
+                          value: 'standard',
+                          child: Text(
+                            '标准品质 (128Kbps - 极速秒开)',
+                            style: TextStyle(fontSize: isNarrow ? 12.5 : 14),
+                          ),
+                        ),
+                        DropdownMenuItem(
+                          value: 'higher',
+                          child: Text(
+                            '较高品质 (192Kbps)',
+                            style: TextStyle(fontSize: isNarrow ? 12.5 : 14),
+                          ),
+                        ),
+                        DropdownMenuItem(
+                          value: 'exhigh',
+                          child: Text(
+                            '极高品质 (320Kbps - 推荐平衡)',
+                            style: TextStyle(fontSize: isNarrow ? 12.5 : 14),
+                          ),
+                        ),
+                        DropdownMenuItem(
+                          value: 'lossless',
+                          child: Text(
+                            '无损品质 (FLAC)',
+                            style: TextStyle(fontSize: isNarrow ? 12.5 : 14),
+                          ),
+                        ),
+                        DropdownMenuItem(
+                          value: 'hires',
+                          child: Text(
+                            'Hi-Res 高解析度',
+                            style: TextStyle(fontSize: isNarrow ? 12.5 : 14),
+                          ),
+                        ),
                       ],
                       onChanged: (val) {
                         if (val != null) setState(() => _previewQuality = val);
@@ -193,7 +245,10 @@ class _SettingsDialogState extends State<SettingsDialog> {
                             decoration: const InputDecoration(
                               labelText: '同时下载的最大任务数',
                               hintText: '例如: 3, 5, 8...',
-                              contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 12,
+                              ),
                             ),
                           ),
                         ),
@@ -203,9 +258,11 @@ class _SettingsDialogState extends State<SettingsDialog> {
                           tooltip: '减少任务数',
                           icon: const Icon(Icons.remove),
                           onPressed: () {
-                            final current = int.tryParse(_concurrentController.text) ?? 1;
+                            final current =
+                                int.tryParse(_concurrentController.text) ?? 1;
                             if (current > 1) {
-                              _concurrentController.text = (current - 1).toString();
+                              _concurrentController.text = (current - 1)
+                                  .toString();
                             }
                           },
                         ),
@@ -215,8 +272,10 @@ class _SettingsDialogState extends State<SettingsDialog> {
                           tooltip: '增加任务数',
                           icon: const Icon(Icons.add),
                           onPressed: () {
-                            final current = int.tryParse(_concurrentController.text) ?? 1;
-                            _concurrentController.text = (current + 1).toString();
+                            final current =
+                                int.tryParse(_concurrentController.text) ?? 1;
+                            _concurrentController.text = (current + 1)
+                                .toString();
                           },
                         ),
                       ],
@@ -224,7 +283,10 @@ class _SettingsDialogState extends State<SettingsDialog> {
                     const SizedBox(height: 3),
                     Text(
                       '控制下载队列中同时开始下载的歌曲任务数',
-                      style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey, fontSize: 11),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: Colors.grey,
+                        fontSize: 11,
+                      ),
                     ),
                     const SizedBox(height: 14),
 
@@ -240,7 +302,10 @@ class _SettingsDialogState extends State<SettingsDialog> {
                             decoration: const InputDecoration(
                               labelText: '单曲分块多线程数',
                               hintText: '例如: 1, 2, 4, 8, 16...',
-                              contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 12,
+                              ),
                             ),
                           ),
                         ),
@@ -250,9 +315,14 @@ class _SettingsDialogState extends State<SettingsDialog> {
                           tooltip: '减少分块数',
                           icon: const Icon(Icons.remove),
                           onPressed: () {
-                            final current = int.tryParse(_singleSongThreadsController.text) ?? 1;
+                            final current =
+                                int.tryParse(
+                                  _singleSongThreadsController.text,
+                                ) ??
+                                1;
                             if (current > 1) {
-                              _singleSongThreadsController.text = (current - 1).toString();
+                              _singleSongThreadsController.text = (current - 1)
+                                  .toString();
                             }
                           },
                         ),
@@ -262,8 +332,13 @@ class _SettingsDialogState extends State<SettingsDialog> {
                           tooltip: '增加分块数',
                           icon: const Icon(Icons.add),
                           onPressed: () {
-                            final current = int.tryParse(_singleSongThreadsController.text) ?? 1;
-                            _singleSongThreadsController.text = (current + 1).toString();
+                            final current =
+                                int.tryParse(
+                                  _singleSongThreadsController.text,
+                                ) ??
+                                1;
+                            _singleSongThreadsController.text = (current + 1)
+                                .toString();
                           },
                         ),
                       ],
@@ -271,7 +346,10 @@ class _SettingsDialogState extends State<SettingsDialog> {
                     const SizedBox(height: 3),
                     Text(
                       '为单首歌曲开启 Range 分块并行下载。设为 1 即为原生单连接流式，设为 4~16 可显著突破单连接限速',
-                      style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey, fontSize: 11),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: Colors.grey,
+                        fontSize: 11,
+                      ),
                     ),
                     const SizedBox(height: 14),
 
@@ -280,16 +358,24 @@ class _SettingsDialogState extends State<SettingsDialog> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: colorScheme.surfaceContainerHighest.withAlpha(40),
+                        color: colorScheme.surfaceContainerHighest.withAlpha(
+                          40,
+                        ),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.folder, size: 20, color: Colors.amber),
+                          const Icon(
+                            Icons.folder,
+                            size: 20,
+                            color: Colors.amber,
+                          ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              _downloadDir.isEmpty ? '加载中...' : _downloadDir,
+                              _downloadDir.isEmpty
+                                  ? '加载中...'
+                                  : FileAccess.displayPath(_downloadDir),
                               style: TextStyle(fontSize: isNarrow ? 11.5 : 12),
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
@@ -299,7 +385,9 @@ class _SettingsDialogState extends State<SettingsDialog> {
                           FilledButton.tonal(
                             style: FilledButton.styleFrom(
                               visualDensity: VisualDensity.compact,
-                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
                             ),
                             onPressed: _pickDir,
                             child: const Text('更改'),
@@ -314,14 +402,20 @@ class _SettingsDialogState extends State<SettingsDialog> {
                     SwitchListTile(
                       dense: isNarrow,
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('下载同步歌词文件 (.lrc)', style: TextStyle(fontSize: 13.5)),
+                      title: const Text(
+                        '下载同步歌词文件 (.lrc)',
+                        style: TextStyle(fontSize: 13.5),
+                      ),
                       value: _downloadLyrics,
                       onChanged: (val) => setState(() => _downloadLyrics = val),
                     ),
                     SwitchListTile(
                       dense: isNarrow,
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('合并翻译歌词至时间轴', style: TextStyle(fontSize: 13.5)),
+                      title: const Text(
+                        '合并翻译歌词至时间轴',
+                        style: TextStyle(fontSize: 13.5),
+                      ),
                       value: _downloadTranslation,
                       onChanged: _downloadLyrics
                           ? (val) => setState(() => _downloadTranslation = val)
@@ -330,7 +424,10 @@ class _SettingsDialogState extends State<SettingsDialog> {
                     SwitchListTile(
                       dense: isNarrow,
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('写入音频 ID3 标签与高清封面', style: TextStyle(fontSize: 13.5)),
+                      title: const Text(
+                        '写入音频 ID3 标签与高清封面',
+                        style: TextStyle(fontSize: 13.5),
+                      ),
                       value: _writeMetadata,
                       onChanged: (val) => setState(() => _writeMetadata = val),
                     ),
@@ -339,10 +436,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
               ),
 
               const SizedBox(height: 10),
-              FilledButton(
-                onPressed: _saveAndClose,
-                child: const Text('保存配置'),
-              ),
+              FilledButton(onPressed: _saveAndClose, child: const Text('保存配置')),
             ],
           ),
         ),

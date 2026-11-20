@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
+import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
+import '../storage/file_access.dart';
+import '../audio/audio_duration_service.dart';
 import '../../config/app_constants.dart';
 import '../../models/song.dart';
 import '../../models/download_task.dart';
@@ -23,6 +26,30 @@ class DownloadService {
   final NeteaseMusicService _musicService = NeteaseMusicService.instance;
   final NeteaseLyricService _lyricService = NeteaseLyricService.instance;
   late final Dio _dio;
+
+  DownloadTask? _vipBlockedBy;
+  DownloadTask? _vipRetryTask;
+  DownloadTask? get vipBlockedBy => _vipBlockedBy;
+  bool get isRetryingVip =>
+      _vipRetryTask != null ||
+      (_vipBlockedBy != null && _cancelTokens.containsKey(_vipBlockedBy!.id));
+
+  Future<Map<String, dynamic>?> Function(Song, String)? _resolveUrl;
+  Future<void> Function(String, String, CancelToken)? _transfer;
+  Future<int?> Function(String) _readDuration =
+      AudioDurationService.readMilliseconds;
+
+  @visibleForTesting
+  factory DownloadService.forTesting({
+    required Future<Map<String, dynamic>?> Function(Song, String) resolveUrl,
+    required Future<void> Function(String, String, CancelToken) transfer,
+    required Future<int?> Function(String) readDuration,
+  }) {
+    return DownloadService._internal()
+      .._resolveUrl = resolveUrl
+      .._transfer = transfer
+      .._readDuration = readDuration;
+  }
 
   /// 所有维护的下载任务队列列表
   final List<DownloadTask> _tasks = [];
@@ -83,7 +110,9 @@ class DownloadService {
   /// 仅在有活跃下载任务时动态启动刷新定时器
   void _ensureTickerStarted() {
     _ticker ??= Timer.periodic(const Duration(milliseconds: 500), (_) {
-      final hasActive = _tasks.any((t) => t.status == DownloadStatus.downloading);
+      final hasActive = _tasks.any(
+        (t) => t.status == DownloadStatus.downloading,
+      );
       if (!hasActive) {
         _stopTicker();
         return;
@@ -113,7 +142,8 @@ class DownloadService {
     String? targetDirectory,
   }) async {
     final effectiveQuality = quality ?? _storage.getAudioRate();
-    final effectiveDir = targetDirectory ?? await _storage.getDownloadDirectory();
+    final effectiveDir =
+        targetDirectory ?? await _storage.getDownloadDirectory();
     final template = _storage.getFileNameTemplate();
 
     // 解析出安全文件名
@@ -126,7 +156,7 @@ class DownloadService {
       if (existing.status == DownloadStatus.failed ||
           existing.status == DownloadStatus.paused ||
           existing.status == DownloadStatus.cancelled) {
-        resumeTask(existing);
+        resumeTask(existing, manually: false);
       }
       return existing;
     }
@@ -139,6 +169,10 @@ class DownloadService {
       fileName: '$baseFileName.mp3', // 初始默认 mp3，后续解析真实类型后修正
     );
 
+    if (_vipBlockedBy != null && song.isVipRequired) {
+      task.status = DownloadStatus.paused;
+      task.pausedForVip = true;
+    }
     _tasks.add(task);
     _notify(task);
     _scheduleQueue();
@@ -157,18 +191,23 @@ class DownloadService {
       quality: quality,
       targetDirectory: targetDirectory,
     );
-    if (task.status == DownloadStatus.completed || task.status == DownloadStatus.failed) {
+    if (task.status == DownloadStatus.completed ||
+        task.status == DownloadStatus.failed ||
+        task.status == DownloadStatus.cancelled) {
       return task;
     }
     final completer = Completer<DownloadTask>();
     void listener(DownloadTask updated) {
       if (updated.id == task.id) {
-        if (updated.status == DownloadStatus.completed || updated.status == DownloadStatus.failed) {
+        if (updated.status == DownloadStatus.completed ||
+            updated.status == DownloadStatus.failed ||
+            updated.status == DownloadStatus.cancelled) {
           removeListener(listener);
           if (!completer.isCompleted) completer.complete(updated);
         }
       }
     }
+
     addListener(listener);
     return completer.future;
   }
@@ -194,14 +233,20 @@ class DownloadService {
   /// 调度下载队列，维持在最大并发量内自动运行
   void _scheduleQueue() {
     final maxConcurrent = _storage.getMaxConcurrentDownloads();
-    final activeCount = _tasks.where((t) =>
-        t.status == DownloadStatus.downloading ||
-        t.status == DownloadStatus.tagging ||
-        t.status == DownloadStatus.lyrics).length;
-
+    // 已取消的运行仍占用槽位，直到旧运行完全退出，避免快速暂停/继续串线。
+    final activeCount = _cancelTokens.length;
     if (activeCount >= maxConcurrent) return;
-
-    final pendingTasks = _tasks.where((t) => t.status == DownloadStatus.pending).toList();
+    final pendingTasks = _tasks
+        .where(
+          (t) =>
+              t.status == DownloadStatus.pending &&
+              !_cancelTokens.containsKey(t.id) &&
+              (_vipBlockedBy == null ||
+                  !t.song.isVipRequired ||
+                  t.ignoreVipRestriction ||
+                  identical(t, _vipRetryTask)),
+        )
+        .toList();
     final slotsAvailable = maxConcurrent - activeCount;
 
     for (int i = 0; i < slotsAvailable && i < pendingTasks.length; i++) {
@@ -213,25 +258,30 @@ class DownloadService {
   Future<void> _startTask(DownloadTask task) async {
     if (task.status != DownloadStatus.pending) return;
 
+    final cancelToken = CancelToken();
+    _cancelTokens[task.id] = cancelToken;
     task.status = DownloadStatus.downloading;
     task.errorMessage = null;
     _ensureTickerStarted();
     _notify(task);
 
-    final cancelToken = CancelToken();
-    _cancelTokens[task.id] = cancelToken;
-
+    Directory? stagingDirectory;
     int lastBytes = 0;
     DateTime lastTime = DateTime.now();
 
     try {
       // 1. 获取网易云音频下载直链
-      final urlInfo = await _musicService.getSongUrlInfo(
-        songId: task.song.id,
-        level: task.qualityLevel,
-      );
+      final urlInfo = _resolveUrl != null
+          ? await _resolveUrl!(task.song, task.qualityLevel)
+          : await _musicService.getSongUrlInfo(
+              songId: task.song.id,
+              level: task.qualityLevel,
+            );
+      _checkCancelled(cancelToken);
 
-      if (urlInfo == null || urlInfo['url'] == null || urlInfo['url'].toString().isEmpty) {
+      if (urlInfo == null ||
+          urlInfo['url'] == null ||
+          urlInfo['url'].toString().isEmpty) {
         throw Exception('无法解析音频下载链接，歌曲可能受版权或会员权益限制');
       }
 
@@ -244,13 +294,19 @@ class DownloadService {
       final template = _storage.getFileNameTemplate();
       final baseFileName = _buildSafeFileName(task.song, template);
       final finalFileName = '$baseFileName.$ext';
-      final finalFilePath = '${task.targetDirectory}/$finalFileName';
-
-      // 确保下载目录存在
-      final dir = Directory(task.targetDirectory);
-      if (!await dir.exists()) {
-        await dir.create(recursive: true);
-      }
+      task.fileName = finalFileName;
+      await FileAccess.ensureDirectory(task.targetDirectory);
+      // 先在应用临时目录下载、测量和写标签，再以授权流导出。
+      // 取消或重试失败不破坏原目标音频，SAF 也不依赖随机访问和 rename。
+      final temporaryRoot = _transfer != null
+          ? Directory.systemTemp
+          : await getTemporaryDirectory();
+      stagingDirectory = await temporaryRoot.createTemp('hydownloader-');
+      final finalFilePath = FileAccess.join(
+        stagingDirectory.path,
+        finalFileName,
+      );
+      _checkCancelled(cancelToken);
 
       // 获取文件总大小
       int totalBytes = (urlInfo['size'] is int) ? urlInfo['size'] as int : 0;
@@ -286,7 +342,9 @@ class DownloadService {
       }
 
       // 2. 根据用户设置选择：单曲多线程分块下载 或 原生单连接下载
-      if (singleSongThreads > 1 && totalBytes > 256 * 1024) {
+      if (_transfer != null) {
+        await _transfer!(downloadUrl, finalFilePath, cancelToken);
+      } else if (singleSongThreads > 1 && totalBytes > 256 * 1024) {
         await _downloadMultiThreaded(
           task: task,
           url: downloadUrl,
@@ -304,6 +362,29 @@ class DownloadService {
           onProgress: onProgressUpdate,
         );
       }
+
+      _checkCancelled(cancelToken);
+      if (task.song.isVipRequired) {
+        task.actualDurationMs = await _readDuration(finalFilePath);
+        _checkCancelled(cancelToken);
+        task.isPreview = AudioDurationService.isVipPreview(
+          isVip: true,
+          expectedMs: task.song.durationMs,
+          actualMs: task.actualDurationMs,
+        );
+        if (task.isPreview && !task.ignoreVipRestriction) {
+          _blockVipDownloads(task);
+        }
+      }
+      if (identical(task, _vipRetryTask) &&
+          !task.isPreview &&
+          !AudioDurationService.isFullLength(
+            task.song.durationMs,
+            task.actualDurationMs,
+          )) {
+        throw Exception('暂时无法确认完整时长，请重试');
+      }
+      _checkCancelled(cancelToken);
 
       // 3. 写入 ID3 / 元数据标签
       if (_storage.getWriteMetadata()) {
@@ -333,6 +414,10 @@ class DownloadService {
         );
       }
 
+      _checkCancelled(cancelToken);
+      await StoredFile(finalFilePath).copy(task.fullFilePath);
+      _checkCancelled(cancelToken);
+
       // 4. 获取并写入歌词文件 (.lrc)
       if (_storage.getDownloadLyrics()) {
         task.status = DownloadStatus.lyrics;
@@ -344,7 +429,19 @@ class DownloadService {
         );
 
         if (lrc != null && lrc.trim().isNotEmpty) {
-          await LyricWriter.writeLrcFile(finalFilePath, lrc);
+          await LyricWriter.writeLrcFile(task.fullFilePath, lrc);
+        }
+      }
+
+      _checkCancelled(cancelToken);
+      if (identical(task, _vipRetryTask)) {
+        if (AudioDurationService.isFullLength(
+          task.song.durationMs,
+          task.actualDurationMs,
+        )) {
+          _releaseVipDownloads();
+        } else if (!task.isPreview) {
+          throw Exception('暂时无法确认完整时长，请重试');
         }
       }
 
@@ -354,16 +451,24 @@ class DownloadService {
       task.speedBytesPerSec = 0.0;
     } on DioException catch (e) {
       if (CancelToken.isCancel(e)) {
-        task.status = DownloadStatus.paused;
+        // 暂停/取消/再次排队状态由用户操作维护，旧运行不能覆盖。
       } else {
         task.status = DownloadStatus.failed;
         task.errorMessage = '网络下载错误: ${e.message}';
       }
     } catch (e) {
-      task.status = DownloadStatus.failed;
-      task.errorMessage = e.toString().replaceFirst('Exception: ', '');
+      if (!cancelToken.isCancelled) {
+        task.status = DownloadStatus.failed;
+        task.errorMessage = e.toString().replaceFirst('Exception: ', '');
+      }
     } finally {
       _cancelTokens.remove(task.id);
+      if (identical(task, _vipRetryTask)) _vipRetryTask = null;
+      if (stagingDirectory != null) {
+        try {
+          await stagingDirectory.delete(recursive: true);
+        } catch (_) {}
+      }
       _notify(task);
       _scheduleQueue(); // 自动调度下一个任务
     }
@@ -410,14 +515,20 @@ class DownloadService {
             ),
             onReceiveProgress: (chunkReceived, _) {
               downloadedPerChunk[chunkIndex] = chunkReceived;
-              final totalDownloaded = downloadedPerChunk.reduce((a, b) => a + b);
+              final totalDownloaded = downloadedPerChunk.reduce(
+                (a, b) => a + b,
+              );
               onProgress(totalDownloaded, totalBytes);
             },
           );
 
           // 核心校验：服务端必须返回 206 Partial Content，且切片长度必须与预期严格一致
-          if (res.statusCode != 206 || res.data == null || res.data!.length != expectedLen) {
-            throw Exception('切片 $chunkIndex 响应异常 (status: ${res.statusCode}, len: ${res.data?.length}, expected: $expectedLen)');
+          if (res.statusCode != 206 ||
+              res.data == null ||
+              res.data!.length != expectedLen) {
+            throw Exception(
+              '切片 $chunkIndex 响应异常 (status: ${res.statusCode}, len: ${res.data?.length}, expected: $expectedLen)',
+            );
           }
 
           await partFile.writeAsBytes(res.data!, flush: true);
@@ -455,18 +566,24 @@ class DownloadService {
       // 清理临时切片
       for (final pf in partFiles) {
         if (await pf.exists()) {
-          try { await pf.delete(); } catch (_) {}
+          try {
+            await pf.delete();
+          } catch (_) {}
         }
       }
     } catch (e) {
       // 若多线程分块下载失败，彻底清理切片与临时文件
       for (final pf in partFiles) {
         if (await pf.exists()) {
-          try { await pf.delete(); } catch (_) {}
+          try {
+            await pf.delete();
+          } catch (_) {}
         }
       }
       if (await tempMergedFile.exists()) {
-        try { await tempMergedFile.delete(); } catch (_) {}
+        try {
+          await tempMergedFile.delete();
+        } catch (_) {}
       }
 
       if (cancelToken.isCancelled) rethrow;
@@ -505,89 +622,162 @@ class DownloadService {
       await tempFile.rename(targetPath);
     } catch (e) {
       if (await tempFile.exists()) {
-        try { await tempFile.delete(); } catch (_) {}
+        try {
+          await tempFile.delete();
+        } catch (_) {}
       }
       rethrow;
     }
   }
 
-  /// 暂停任务
-  void pauseTask(DownloadTask task) {
-    if (task.status == DownloadStatus.downloading) {
+  @visibleForTesting
+  void dispose() {
+    for (final token in _cancelTokens.values) {
+      token.cancel();
+    }
+    _stopTicker();
+    _dio.close(force: true);
+    _listeners.clear();
+  }
+
+  void _checkCancelled(CancelToken token) {
+    if (token.isCancelled) throw token.cancelError!;
+  }
+
+  /// 暂停所有未手动放行的 VIP；非 VIP、已完成和用户原本暂停的任务保持原状。
+  void _blockVipDownloads(DownloadTask cause) {
+    _vipBlockedBy ??= cause;
+    for (final task in _tasks) {
+      if (identical(task, cause) ||
+          identical(task, _vipRetryTask) ||
+          !task.song.isVipRequired ||
+          task.ignoreVipRestriction) {
+        continue;
+      }
+      if (task.status == DownloadStatus.pending ||
+          _cancelTokens.containsKey(task.id)) {
+        task.pausedForVip = true;
+        _pauseTask(task);
+      }
+    }
+    _notify(cause);
+  }
+
+  void _releaseVipDownloads() {
+    _vipBlockedBy = null;
+    for (final task in _tasks) {
+      if (task.pausedForVip && task.status == DownloadStatus.paused) {
+        task.status = DownloadStatus.pending;
+      }
+      task.pausedForVip = false;
+      task.ignoreVipRestriction = false;
+    }
+  }
+
+  /// 重试引发保护的原歌曲。必须测得完整长度才解除保护。
+  void retryVipSong() {
+    final cause = _vipBlockedBy;
+    if (cause == null || isRetryingVip) return;
+    if (!_tasks.contains(cause)) _tasks.add(cause);
+    cause.ignoreVipRestriction = false;
+    cause.pausedForVip = false;
+    cause.status = DownloadStatus.pending;
+    cause.errorMessage = null;
+    _vipRetryTask = cause;
+    _notify(cause);
+    _scheduleQueue();
+  }
+
+  void _pauseTask(DownloadTask task) {
+    if (task.status == DownloadStatus.pending ||
+        task.status == DownloadStatus.downloading ||
+        task.status == DownloadStatus.tagging ||
+        task.status == DownloadStatus.lyrics) {
       _cancelTokens[task.id]?.cancel();
       task.status = DownloadStatus.paused;
-      task.speedBytesPerSec = 0.0;
-      _notify(task);
-      _scheduleQueue();
-    } else if (task.status == DownloadStatus.pending) {
-      task.status = DownloadStatus.paused;
+      task.speedBytesPerSec = 0;
       _notify(task);
     }
   }
 
-  /// 恢复任务
-  void resumeTask(DownloadTask task) {
-    if (task.status == DownloadStatus.paused ||
-        task.status == DownloadStatus.failed ||
-        task.status == DownloadStatus.cancelled) {
-      task.status = DownloadStatus.pending;
-      task.errorMessage = null;
-      _notify(task);
-      _scheduleQueue();
+  /// 用户暂停不应在 VIP 保护解除后自动恢复。
+  void pauseTask(DownloadTask task) {
+    task.pausedForVip = false;
+    _pauseTask(task);
+    _scheduleQueue();
+  }
+
+  /// 仅单独手动继续才放行此歌曲，添加重复任务和全部继续不解除保护。
+  void resumeTask(DownloadTask task, {bool manually = true}) {
+    if (task.status != DownloadStatus.paused &&
+        task.status != DownloadStatus.failed &&
+        task.status != DownloadStatus.cancelled) {
+      return;
     }
+    if (_vipBlockedBy != null && task.song.isVipRequired) {
+      if (!manually) return;
+      task.ignoreVipRestriction = true;
+    }
+    task.pausedForVip = false;
+    task.status = DownloadStatus.pending;
+    task.errorMessage = null;
+    _notify(task);
+    _scheduleQueue();
   }
 
-  /// 重试失败任务
-  void retryTask(DownloadTask task) {
-    resumeTask(task);
-  }
+  void retryTask(DownloadTask task) => resumeTask(task);
 
-  /// 取消并移除任务
   void cancelTask(DownloadTask task) {
+    task.status = DownloadStatus.cancelled;
+    task.pausedForVip = false;
     _cancelTokens[task.id]?.cancel();
-    _cancelTokens.remove(task.id);
     _tasks.remove(task);
     _notify(task);
     _scheduleQueue();
   }
 
-  /// 清理已完成的任务项
   void clearCompleted() {
-    _tasks.removeWhere((t) => t.status == DownloadStatus.completed);
-    for (final listener in List<DownloadStatusListener>.of(_listeners)) {
-      try {
-        if (_tasks.isNotEmpty) {
-          listener(_tasks.first);
-        }
-      } catch (_) {}
-    }
+    final removed = _tasks
+        .where(
+          (t) =>
+              t.status == DownloadStatus.completed &&
+              !identical(t, _vipBlockedBy),
+        )
+        .toList();
+    _tasks.removeWhere(removed.contains);
+    if (removed.isNotEmpty) _notify(removed.first);
   }
 
-  /// 全部暂停
   void pauseAll() {
-    for (final t in _tasks) {
-      if (t.status == DownloadStatus.downloading || t.status == DownloadStatus.pending) {
-        pauseTask(t);
-      }
+    // 先一次性修改状态，不能在循环内调度使后面的等待任务提前启动。
+    for (final task in _tasks) {
+      task.pausedForVip = false;
+      _pauseTask(task);
     }
   }
 
-  /// 全部恢复
   void resumeAll() {
-    for (final t in _tasks) {
-      if (t.status == DownloadStatus.paused || t.status == DownloadStatus.failed) {
-        resumeTask(t);
-      }
+    for (final task in _tasks) {
+      resumeTask(task, manually: false);
     }
   }
 
   /// 生成合法安全的文件名
   String _buildSafeFileName(Song song, String template) {
     var result = template
-        .replaceAll(AppConstants.placeholderSinger, song.artistStringForFileName)
+        .replaceAll(
+          AppConstants.placeholderSinger,
+          song.artistStringForFileName,
+        )
         .replaceAll(AppConstants.placeholderSongName, song.name)
-        .replaceAll(AppConstants.placeholderAlbum, song.albumName.isEmpty ? '单曲' : song.albumName)
-        .replaceAll(AppConstants.placeholderIndex, song.trackNumber.toString().padLeft(2, '0'))
+        .replaceAll(
+          AppConstants.placeholderAlbum,
+          song.albumName.isEmpty ? '单曲' : song.albumName,
+        )
+        .replaceAll(
+          AppConstants.placeholderIndex,
+          song.trackNumber.toString().padLeft(2, '0'),
+        )
         .replaceAll(AppConstants.placeholderSongId, song.id);
 
     // 过滤 Windows/Linux/macOS 文件名非法字符: \ / : * ? " < > |

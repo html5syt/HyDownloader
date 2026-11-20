@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io';
+import '../storage/file_access.dart';
 import 'package:path/path.dart' as p;
 import '../../models/song.dart';
 import '../../models/sync_item.dart';
@@ -46,28 +46,20 @@ class PlaylistSyncService {
     final onlineSongs = await _musicService.getPlaylistSongs(playlistId);
 
     // 2. 为每一个选定的本地目录分别建立文件与指纹索引
-    final folderFileMaps = <String, Map<String, File>>{};
-    final folderFilesList = <String, List<File>>{};
+    final folderFileMaps = <String, Map<String, StoredFile>>{};
+    final folderFilesList = <String, List<StoredFile>>{};
 
     for (final folderPath in localFolderPaths) {
-      final dir = Directory(folderPath);
-      final fileMap = <String, File>{};
-      final files = <File>[];
-
-      if (await dir.exists()) {
-        try {
-          final entries = await dir.list(recursive: false).toList();
-          for (final entity in entries) {
-            if (entity is File) {
-              final ext = p.extension(entity.path).toLowerCase();
-              if (supportedAudioExtensions.contains(ext)) {
-                files.add(entity);
-                final baseName = p.basenameWithoutExtension(entity.path);
-                fileMap[_normalizeText(baseName)] = entity;
-              }
-            }
-          }
-        } catch (_) {}
+      final fileMap = <String, StoredFile>{};
+      final files = <StoredFile>[];
+      for (final entity in await FileAccess.listFiles(folderPath)) {
+        final name = FileAccess.fileName(entity.path);
+        if (supportedAudioExtensions.contains(
+          p.extension(name).toLowerCase(),
+        )) {
+          files.add(entity);
+          fileMap[_normalizeText(p.basenameWithoutExtension(name))] = entity;
+        }
       }
 
       folderFileMaps[folderPath] = fileMap;
@@ -79,7 +71,7 @@ class PlaylistSyncService {
 
     // 3. 逐首对比在线歌曲在各个本地文件夹中的分布情况
     for (final song in onlineSongs) {
-      final existingFolders = <String, File>{};
+      final existingFolders = <String, StoredFile>{};
       final missingFolders = <String>[];
 
       for (final folderPath in localFolderPaths) {
@@ -95,39 +87,47 @@ class PlaylistSyncService {
 
       if (missingFolders.isEmpty) {
         // 情况 A: 所有选中的磁盘文件夹均已拥有此歌曲
-        resultItems.add(SyncItem(
-          id: 'matched_${song.id}',
-          type: SyncDifferenceType.matched,
-          song: song,
-          localFilePath: existingFolders.values.first.path,
-          localFileName: p.basename(existingFolders.values.first.path),
-          localDirectory: existingFolders.keys.first,
-          targetDirectories: [],
-          isSelected: false,
-        ));
+        resultItems.add(
+          SyncItem(
+            id: 'matched_${song.id}',
+            type: SyncDifferenceType.matched,
+            song: song,
+            localFilePath: existingFolders.values.first.path,
+            localFileName: FileAccess.fileName(
+              existingFolders.values.first.path,
+            ),
+            localDirectory: existingFolders.keys.first,
+            targetDirectories: [],
+            isSelected: false,
+          ),
+        );
       } else if (existingFolders.isNotEmpty) {
         // 情况 B (需求 3): 部分磁盘已有该歌曲（例如本地电脑有，U盘缺失）
         // 策略：不从网络重复下载，直接在本地磁盘间极速复制！
         final sourceFile = existingFolders.values.first;
-        resultItems.add(SyncItem(
-          id: 'copy_${song.id}',
-          type: SyncDifferenceType.copyFromLocal,
-          song: song,
-          sourceFilePath: sourceFile.path,
-          localFileName: p.basename(sourceFile.path),
-          targetDirectories: List.from(missingFolders),
-          isSelected: true,
-        ));
+        resultItems.add(
+          SyncItem(
+            id: 'copy_${song.id}',
+            type: SyncDifferenceType.copyFromLocal,
+            song: song,
+            sourceFilePath: sourceFile.path,
+            localFileName: FileAccess.fileName(sourceFile.path),
+            targetDirectories: List.from(missingFolders),
+            isSelected: true,
+          ),
+        );
       } else {
         // 情况 C (需求 2): 本地所有磁盘均缺失该歌曲
         // 策略：优先从云端下载 1 份至首选磁盘，随后在后台本地拷贝分发至其他磁盘 (如慢速U盘)
-        resultItems.add(SyncItem(
-          id: 'missing_${song.id}',
-          type: SyncDifferenceType.missingInLocal,
-          song: song,
-          targetDirectories: List.from(localFolderPaths),
-          isSelected: true,
-        ));
+        resultItems.add(
+          SyncItem(
+            id: 'missing_${song.id}',
+            type: SyncDifferenceType.missingInLocal,
+            song: song,
+            targetDirectories: List.from(localFolderPaths),
+            isSelected: true,
+          ),
+        );
       }
     }
 
@@ -136,16 +136,18 @@ class PlaylistSyncService {
       final files = folderFilesList[folderPath] ?? [];
       for (final f in files) {
         if (!matchedLocalFilesSet.contains(f.path)) {
-          final fileName = p.basename(f.path);
-          resultItems.add(SyncItem(
-            id: 'extra_${f.path.hashCode}',
-            type: SyncDifferenceType.extraInLocal,
-            localFilePath: f.path,
-            localFileName: fileName,
-            localDirectory: folderPath,
-            targetDirectories: [],
-            isSelected: true,
-          ));
+          final fileName = FileAccess.fileName(f.path);
+          resultItems.add(
+            SyncItem(
+              id: 'extra_${f.path.hashCode}',
+              type: SyncDifferenceType.extraInLocal,
+              localFilePath: f.path,
+              localFileName: fileName,
+              localDirectory: folderPath,
+              targetDirectories: [],
+              isSelected: true,
+            ),
+          );
         }
       }
     }
@@ -154,14 +156,18 @@ class PlaylistSyncService {
   }
 
   /// 在指定文件夹的文件映射中寻找与在线歌曲名称匹配的文件
-  File? _findMatchingLocalFile(Song song, Map<String, File> localFileMap) {
+  StoredFile? _findMatchingLocalFile(
+    Song song,
+    Map<String, StoredFile> localFileMap,
+  ) {
     final songNameNorm = _normalizeText(song.name);
     final artistNorms = song.artists.map(_normalizeText).toList();
 
     for (final entry in localFileMap.entries) {
       final localNorm = entry.key;
 
-      if (localNorm.contains(songNameNorm) || songNameNorm.contains(localNorm)) {
+      if (localNorm.contains(songNameNorm) ||
+          songNameNorm.contains(localNorm)) {
         if (artistNorms.isEmpty) return entry.value;
         for (final a in artistNorms) {
           if (localNorm.contains(a)) return entry.value;
@@ -195,6 +201,7 @@ class PlaylistSyncService {
     final maxConcurrent = _storage.getMaxConcurrentDownloads();
     final queue = List<SyncItem>.from(selectedItems);
     int activeCount = 0;
+    int localActiveCount = 0;
     int doneCount = 0;
     final completer = Completer<void>();
 
@@ -204,24 +211,32 @@ class PlaylistSyncService {
         return;
       }
 
-      while (activeCount < maxConcurrent && queue.isNotEmpty) {
+      // 云端任务并发已由下载服务控制。等待暂停的 VIP 不占本地工作槽位，
+      // 否则它们会堵住后面的普通歌曲和免下载拷贝。
+      while (localActiveCount < maxConcurrent && queue.isNotEmpty) {
         final item = queue.removeAt(0);
+        final usesLocalSlot = item.type != SyncDifferenceType.missingInLocal;
+        if (usesLocalSlot) localActiveCount++;
         activeCount++;
         item.executionStatus = 'syncing';
 
-        _executeSingleSyncItem(item, targetDownloadFolder).then((_) {
-          activeCount--;
-          doneCount++;
-          onProgress?.call(doneCount, selectedItems.length);
-          processNext();
-        }).catchError((e) {
-          activeCount--;
-          doneCount++;
-          item.executionStatus = 'failed';
-          item.executionMessage = '处理失败: $e';
-          onProgress?.call(doneCount, selectedItems.length);
-          processNext();
-        });
+        _executeSingleSyncItem(item, targetDownloadFolder)
+            .then((_) {
+              activeCount--;
+              if (usesLocalSlot) localActiveCount--;
+              doneCount++;
+              onProgress?.call(doneCount, selectedItems.length);
+              processNext();
+            })
+            .catchError((e) {
+              activeCount--;
+              if (usesLocalSlot) localActiveCount--;
+              doneCount++;
+              item.executionStatus = 'failed';
+              item.executionMessage = '处理失败: $e';
+              onProgress?.call(doneCount, selectedItems.length);
+              processNext();
+            });
       }
     }
 
@@ -230,15 +245,20 @@ class PlaylistSyncService {
   }
 
   /// 执行单个同步项的处理：严格同步音频及其对应的 .lrc 歌词文件
-  Future<void> _executeSingleSyncItem(SyncItem item, String targetDownloadFolder) async {
+  Future<void> _executeSingleSyncItem(
+    SyncItem item,
+    String targetDownloadFolder,
+  ) async {
     if (item.type == SyncDifferenceType.copyFromLocal &&
         item.sourceFilePath != null &&
         item.targetDirectories.isNotEmpty) {
       // 策略 1 (需求 3): 本地直接拷贝，免网络下载；同时包括 .lrc 歌词文件
-      final sourceFile = File(item.sourceFilePath!);
+      final sourceFile = StoredFile(item.sourceFilePath!);
       if (await sourceFile.exists()) {
-        final fileName = p.basename(sourceFile.path);
-        final sourceLrc = File(p.setExtension(sourceFile.path, '.lrc'));
+        final fileName = FileAccess.fileName(sourceFile.path);
+        final sourceLrc = StoredFile(
+          FileAccess.withExtension(sourceFile.path, '.lrc'),
+        );
 
         // 如果源文件夹缺少 .lrc 歌词文件，自动从云端获取并补齐
         if (!await sourceLrc.exists() && item.song != null) {
@@ -256,27 +276,28 @@ class PlaylistSyncService {
         final hasLrc = await sourceLrc.exists();
 
         for (final destDir in item.targetDirectories) {
-          final dDir = Directory(destDir);
-          if (!await dDir.exists()) await dDir.create(recursive: true);
+          await FileAccess.ensureDirectory(destDir);
 
-          final destFilePath = p.join(destDir, fileName);
+          final destFilePath = FileAccess.join(destDir, fileName);
           // 拷贝音频文件
-          if (!await File(destFilePath).exists()) {
+          if (!await StoredFile(destFilePath).exists()) {
             await sourceFile.copy(destFilePath);
           }
 
           // 同步拷贝 .lrc 歌词文件
           if (hasLrc) {
-            final destLrcPath = p.setExtension(destFilePath, '.lrc');
-            final destLrcFile = File(destLrcPath);
-            if (!await destLrcFile.exists() || await destLrcFile.length() == 0) {
+            final destLrcPath = FileAccess.withExtension(destFilePath, '.lrc');
+            final destLrcFile = StoredFile(destLrcPath);
+            if (!await destLrcFile.exists() ||
+                await destLrcFile.length() == 0) {
               await sourceLrc.copy(destLrcPath);
             }
           }
         }
 
         item.executionStatus = 'completed';
-        item.executionMessage = '已从已有磁盘直接拷贝至 ${item.targetDirectories.length} 个文件夹 (含歌词)';
+        item.executionMessage =
+            '已从已有磁盘直接拷贝至 ${item.targetDirectories.length} 个文件夹 (含歌词)';
       } else {
         item.executionStatus = 'failed';
         item.executionMessage = '源文件不存在，无法进行本地拷贝';
@@ -292,9 +313,11 @@ class PlaylistSyncService {
         targetDirectory: primaryDir,
       );
 
-      if (task.status == DownloadStatus.completed) {
-        final primaryFile = File(task.fullFilePath);
-        final primaryLrc = File(p.setExtension(primaryFile.path, '.lrc'));
+      if (task.status == DownloadStatus.completed && !task.isPreview) {
+        final primaryFile = StoredFile(task.fullFilePath);
+        final primaryLrc = StoredFile(
+          FileAccess.withExtension(primaryFile.path, '.lrc'),
+        );
 
         // 确保主目录拥有 .lrc 歌词文件
         if (!await primaryLrc.exists() && item.song != null) {
@@ -313,18 +336,17 @@ class PlaylistSyncService {
 
         // 若配置了多个目标磁盘文件夹（如 U 盘），在首份落盘后通过本地拷贝快速分发
         if (item.targetDirectories.length > 1 && await primaryFile.exists()) {
-          final fileName = p.basename(primaryFile.path);
+          final fileName = FileAccess.fileName(primaryFile.path);
 
           for (final secondaryDir in item.targetDirectories.skip(1)) {
-            final sDir = Directory(secondaryDir);
-            if (!await sDir.exists()) await sDir.create(recursive: true);
+            await FileAccess.ensureDirectory(secondaryDir);
 
-            final secFilePath = p.join(secondaryDir, fileName);
+            final secFilePath = FileAccess.join(secondaryDir, fileName);
             await primaryFile.copy(secFilePath);
 
             // 同步拷贝 .lrc 歌词文件
             if (hasLrc) {
-              final secLrcPath = p.setExtension(secFilePath, '.lrc');
+              final secLrcPath = FileAccess.withExtension(secFilePath, '.lrc');
               await primaryLrc.copy(secLrcPath);
             }
           }
@@ -336,17 +358,20 @@ class PlaylistSyncService {
             : '已下载完成 (含歌词)';
       } else {
         item.executionStatus = 'failed';
-        item.executionMessage = task.errorMessage ?? '下载失败';
+        item.executionMessage = task.isPreview
+            ? '仅下载了试听片段，请检查会员或免费听权限'
+            : task.errorMessage ?? '下载失败';
       }
-    } else if (item.type == SyncDifferenceType.extraInLocal && item.localFilePath != null) {
+    } else if (item.type == SyncDifferenceType.extraInLocal &&
+        item.localFilePath != null) {
       // 策略 3: 清理本地多余音频及同名歌词
-      final file = File(item.localFilePath!);
+      final file = StoredFile(item.localFilePath!);
       if (await file.exists()) {
         await file.delete();
       }
 
-      final lrcPath = p.setExtension(item.localFilePath!, '.lrc');
-      final lrcFile = File(lrcPath);
+      final lrcPath = FileAccess.withExtension(item.localFilePath!, '.lrc');
+      final lrcFile = StoredFile(lrcPath);
       if (await lrcFile.exists()) {
         await lrcFile.delete();
       }

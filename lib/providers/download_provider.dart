@@ -18,12 +18,18 @@ class DownloadProvider extends ChangeNotifier {
 
   List<DownloadTask> get tasks => _service.tasks;
 
+  DownloadTask? get vipBlockedBy => _service.vipBlockedBy;
+  bool get isRetryingVip => _service.isRetryingVip;
+  void retryVipSong() => _service.retryVipSong();
+
   /// 进行中的下载任务数
   int get activeCount => _service.tasks
-      .where((t) =>
-          t.status == DownloadStatus.downloading ||
-          t.status == DownloadStatus.tagging ||
-          t.status == DownloadStatus.lyrics)
+      .where(
+        (t) =>
+            t.status == DownloadStatus.downloading ||
+            t.status == DownloadStatus.tagging ||
+            t.status == DownloadStatus.lyrics,
+      )
       .length;
 
   /// 排队等待的任务数

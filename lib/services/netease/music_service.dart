@@ -10,10 +10,7 @@ class PlaylistDetailResult {
   final Playlist playlist;
   final List<Song> songs;
 
-  const PlaylistDetailResult({
-    required this.playlist,
-    required this.songs,
-  });
+  const PlaylistDetailResult({required this.playlist, required this.songs});
 }
 
 /// 网易云音乐业务数据接口服务
@@ -58,7 +55,8 @@ class NeteaseMusicService {
     String playlistId, {
     Playlist? initialPlaylist,
   }) async {
-    Playlist currentPlaylist = initialPlaylist ??
+    Playlist currentPlaylist =
+        initialPlaylist ??
         Playlist(
           id: playlistId,
           name: '加载中...',
@@ -72,11 +70,7 @@ class NeteaseMusicService {
       // 优先调用 EAPI v6 歌单详情接口
       final res = await _client.postEApi(
         apiPath: '/api/v6/playlist/detail',
-        actualRequest: {
-          'id': playlistId,
-          'n': 100000,
-          's': 8,
-        },
+        actualRequest: {'id': playlistId, 'n': 100000, 's': 8},
       );
 
       final playlistMap = res['playlist'];
@@ -107,17 +101,18 @@ class NeteaseMusicService {
       try {
         final resWe = await _client.postWeApi(
           url: 'https://music.163.com/weapi/v3/playlist/detail',
-          actualRequest: {
-            'id': playlistId,
-            'n': 100000,
-            's': 8,
-          },
+          actualRequest: {'id': playlistId, 'n': 100000, 's': 8},
         );
         if (resWe['playlist'] is Map<String, dynamic>) {
-          currentPlaylist = Playlist.fromJson(resWe['playlist'] as Map<String, dynamic>);
+          currentPlaylist = Playlist.fromJson(
+            resWe['playlist'] as Map<String, dynamic>,
+          );
           final tracks = resWe['playlist']['tracks'];
           if (tracks is List) {
-            songs = tracks.whereType<Map<String, dynamic>>().map(Song.fromJson).toList();
+            songs = tracks
+                .whereType<Map<String, dynamic>>()
+                .map(Song.fromJson)
+                .toList();
           }
         }
       } catch (_) {}
@@ -141,9 +136,7 @@ class NeteaseMusicService {
     final idObjects = songIds.map((id) => {'id': id}).toList();
     final res = await _client.postWeApi(
       url: 'https://music.163.com/weapi/v3/song/detail',
-      actualRequest: {
-        'c': json.encode(idObjects),
-      },
+      actualRequest: {'c': json.encode(idObjects)},
     );
 
     final songs = <Song>[];
@@ -161,11 +154,7 @@ class NeteaseMusicService {
   Future<List<Podcast>> getUserSubscribedPodcasts() async {
     final res = await _client.postWeApi(
       url: 'https://music.163.com/weapi/djradio/sublist',
-      actualRequest: {
-        'limit': 100,
-        'offset': 0,
-        'total': true,
-      },
+      actualRequest: {'limit': 100, 'offset': 0, 'total': true},
     );
 
     final podcasts = <Podcast>[];

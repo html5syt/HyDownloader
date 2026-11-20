@@ -1,4 +1,5 @@
 import 'song.dart';
+import '../services/storage/file_access.dart';
 
 /// 下载任务执行状态枚举
 enum DownloadStatus {
@@ -46,10 +47,10 @@ class DownloadTask {
   final String targetDirectory;
 
   /// 目标文件名（含后缀，如：周杰伦 - 晴天.flac）
-  final String fileName;
+  String fileName;
 
   /// 完整文件存储路径
-  String get fullFilePath => '$targetDirectory/$fileName';
+  String get fullFilePath => FileAccess.join(targetDirectory, fileName);
 
   /// 当前任务运行状态
   DownloadStatus status;
@@ -74,6 +75,16 @@ class DownloadTask {
 
   /// 实际音频格式后缀 (如 flac, mp3, m4a)
   String fileExtension;
+
+  /// VIP 试听截断保护的暂停原因，与用户手动暂停分开维护。
+  bool pausedForVip = false;
+
+  /// 用户单独继续此任务时，允许忽略当前 VIP 保护。
+  bool ignoreVipRestriction = false;
+
+  /// 实际音频长度与试听截断标记。
+  int? actualDurationMs;
+  bool isPreview = false;
 
   DownloadTask({
     required this.id,
@@ -103,7 +114,9 @@ class DownloadTask {
 
   /// 格式化后的实时下载速度（如 2.3 MB/s）
   String get formattedSpeed {
-    if (speedBytesPerSec <= 0 || status != DownloadStatus.downloading) return '';
+    if (speedBytesPerSec <= 0 || status != DownloadStatus.downloading) {
+      return '';
+    }
     final kb = speedBytesPerSec / 1024;
     if (kb > 1024) {
       return '${(kb / 1024).toStringAsFixed(1)} MB/s';

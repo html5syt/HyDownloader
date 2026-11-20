@@ -14,19 +14,18 @@ class LoginDialog extends StatefulWidget {
 
   /// 静态快捷弹出方法
   static Future<void> show(BuildContext context) {
-    return showDialog(
-      context: context,
-      builder: (_) => const LoginDialog(),
-    );
+    return showDialog(context: context, builder: (_) => const LoginDialog());
   }
 
   @override
   State<LoginDialog> createState() => _LoginDialogState();
 }
 
-class _LoginDialogState extends State<LoginDialog> with SingleTickerProviderStateMixin {
+class _LoginDialogState extends State<LoginDialog>
+    with SingleTickerProviderStateMixin {
   late final TabController _tabController;
-  final TextEditingController _packetCaptureController = TextEditingController();
+  final TextEditingController _packetCaptureController =
+      TextEditingController();
   final TextEditingController _cookieController = TextEditingController();
 
   @override
@@ -66,6 +65,7 @@ class _LoginDialogState extends State<LoginDialog> with SingleTickerProviderStat
     final auth = context.watch<AuthProvider>();
 
     return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480, maxHeight: 560),
@@ -81,7 +81,9 @@ class _LoginDialogState extends State<LoginDialog> with SingleTickerProviderStat
                 children: [
                   Text(
                     '账号登录',
-                    style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   IconButton(
                     icon: const Icon(Icons.close),
@@ -112,15 +114,28 @@ class _LoginDialogState extends State<LoginDialog> with SingleTickerProviderStat
                 child: TabBarView(
                   controller: _tabController,
                   children: [
-                    _buildFakeTokenTab(auth),
-                    _buildPacketCaptureTab(auth),
-                    QrLoginView(onSuccess: _onLoginSuccess),
-                    _buildCookieTab(auth),
+                    _scrollableTab(_buildFakeTokenTab(auth)),
+                    _scrollableTab(_buildPacketCaptureTab(auth)),
+                    _scrollableTab(QrLoginView(onSuccess: _onLoginSuccess)),
+                    _scrollableTab(_buildCookieTab(auth)),
                   ],
                 ),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// 键盘出现或字体放大时，表单可滚动，不挤掉输入框和登录按钮。
+  Widget _scrollableTab(Widget child) {
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: child,
         ),
       ),
     );
@@ -149,7 +164,14 @@ class _LoginDialogState extends State<LoginDialog> with SingleTickerProviderStat
         const SizedBox(height: 24),
         FilledButton.icon(
           icon: auth.isLoading
-              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
               : const Icon(Icons.flash_on),
           label: const Text('立即生成并登录'),
           onPressed: auth.isLoading
@@ -161,7 +183,10 @@ class _LoginDialogState extends State<LoginDialog> with SingleTickerProviderStat
         ),
         if (auth.errorMessage != null) ...[
           const SizedBox(height: 12),
-          Text(auth.errorMessage!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+          Text(
+            auth.errorMessage!,
+            style: const TextStyle(color: Colors.red, fontSize: 12),
+          ),
         ],
       ],
     );
@@ -177,19 +202,19 @@ class _LoginDialogState extends State<LoginDialog> with SingleTickerProviderStat
           style: TextStyle(color: Colors.grey, fontSize: 13),
         ),
         const SizedBox(height: 10),
-        Expanded(
-          child: TextField(
-            controller: _packetCaptureController,
-            maxLines: null,
-            expands: true,
-            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-            decoration: const InputDecoration(
-              hintText: '在此粘贴 capture.json 内容，或点击下方按钮选择文件...',
-            ),
+        TextField(
+          controller: _packetCaptureController,
+          minLines: 4,
+          maxLines: 8,
+          style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+          decoration: const InputDecoration(
+            hintText: '在此粘贴 capture.json 内容，或点击下方按钮选择文件...',
           ),
         ),
         const SizedBox(height: 12),
-        Row(
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
           children: [
             OutlinedButton.icon(
               icon: const Icon(Icons.file_open_outlined, size: 18),
@@ -206,7 +231,6 @@ class _LoginDialogState extends State<LoginDialog> with SingleTickerProviderStat
                 }
               },
             ),
-            const SizedBox(width: 8),
             OutlinedButton.icon(
               icon: const Icon(Icons.paste, size: 18),
               label: const Text('粘贴剪贴板'),
@@ -217,7 +241,6 @@ class _LoginDialogState extends State<LoginDialog> with SingleTickerProviderStat
                 }
               },
             ),
-            const Spacer(),
             FilledButton(
               onPressed: auth.isLoading
                   ? null
@@ -233,7 +256,10 @@ class _LoginDialogState extends State<LoginDialog> with SingleTickerProviderStat
         ),
         if (auth.errorMessage != null) ...[
           const SizedBox(height: 8),
-          Text(auth.errorMessage!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+          Text(
+            auth.errorMessage!,
+            style: const TextStyle(color: Colors.red, fontSize: 12),
+          ),
         ],
       ],
     );
@@ -249,14 +275,12 @@ class _LoginDialogState extends State<LoginDialog> with SingleTickerProviderStat
           style: TextStyle(color: Colors.grey, fontSize: 13),
         ),
         const SizedBox(height: 12),
-        Expanded(
-          child: TextField(
-            controller: _cookieController,
-            maxLines: null,
-            expands: true,
-            decoration: const InputDecoration(
-              hintText: '例如: MUSIC_U=xxxx; __csrf=yyyy',
-            ),
+        TextField(
+          controller: _cookieController,
+          minLines: 4,
+          maxLines: 8,
+          decoration: const InputDecoration(
+            hintText: '例如: MUSIC_U=xxxx; __csrf=yyyy',
           ),
         ),
         const SizedBox(height: 12),
@@ -273,7 +297,10 @@ class _LoginDialogState extends State<LoginDialog> with SingleTickerProviderStat
         ),
         if (auth.errorMessage != null) ...[
           const SizedBox(height: 8),
-          Text(auth.errorMessage!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+          Text(
+            auth.errorMessage!,
+            style: const TextStyle(color: Colors.red, fontSize: 12),
+          ),
         ],
       ],
     );

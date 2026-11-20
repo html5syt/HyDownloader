@@ -70,17 +70,21 @@ class StorageService {
   Future<String> getDownloadDirectory() async {
     final savedPath = _prefs.getString(AppConstants.prefKeyDownloadPath);
     if (savedPath != null && savedPath.isNotEmpty) {
-      final dir = Directory(savedPath);
-      if (await dir.exists()) return savedPath;
+      return savedPath;
     }
 
     try {
-      final musicDir = await getDownloadsDirectory() ??
+      final musicDir =
+          (Platform.isAndroid || Platform.isIOS
+              ? await getApplicationDocumentsDirectory()
+              : await getDownloadsDirectory()) ??
           (Platform.isWindows || Platform.isMacOS || Platform.isLinux
               ? await getApplicationDocumentsDirectory()
               : await getApplicationDocumentsDirectory());
 
-      final defaultFolder = Directory('${musicDir.path}/${AppConstants.defaultDownloadFolderName}');
+      final defaultFolder = Directory(
+        '${musicDir.path}/${AppConstants.defaultDownloadFolderName}',
+      );
       if (!await defaultFolder.exists()) {
         await defaultFolder.create(recursive: true);
       }

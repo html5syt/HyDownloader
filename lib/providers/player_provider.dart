@@ -22,6 +22,7 @@ class PlayerProvider extends ChangeNotifier {
   Duration get position => _service.position;
   Duration get duration => _service.duration;
   bool get canSwitch => _service.canSwitch;
+  String? get errorMessage => _service.errorMessage;
 
   /// 设置当前播放列表
   void setPlaylist(List<Song> songs) {
